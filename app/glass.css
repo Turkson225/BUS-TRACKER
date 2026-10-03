@@ -156,7 +156,16 @@ button:disabled { opacity: .55; box-shadow: none; }
 .leaflet-bar { border: 1px solid #fff!important; border-radius: 10px!important; overflow: hidden; box-shadow: 0 4px 18px #0f172a1f!important; }
 .leaflet-bar a { color: #5b21b6; background: rgba(255, 255, 255, .92); }
 .leaflet-popup-tip { background: #fff; }
-.bus-marker { border-color: #7c3aed; color: #5b21b6; background: white; border-radius: 11px; }
+.bus-marker {
+  border-color: #7c3aed;
+  color: #5b21b6;
+  background: white;
+  border-radius: 11px;
+  width: max-content;
+  /* Center the label over Leaflet's 78px GPS icon, including longer names. */
+  transform: translateX(calc(39px - 50%));
+}
+.bus-marker span { font-size: 11px!important; }
 .bus-marker.selected { outline-color: rgba(167, 139, 250, .42); box-shadow: 0 4px 18px #7c3aed42; }
 .bus-marker.stale { background: #e2e8f0; border-color: #64748b; color: #475569; }
 
