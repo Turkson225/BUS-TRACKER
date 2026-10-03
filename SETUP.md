@@ -2,6 +2,8 @@
 
 Use a dedicated Supabase project for this tracker. The initial migration creates a private schema and does not import any company records from the previous pilot.
 
+The configured tracker project is **https://lglwlqfgjqbbizbcrvzv.supabase.co** (reference **lglwlqfgjqbbizbcrvzv**). GitHub's website and backend workflows now use these as defaults. The URL is public configuration; database passwords and deployment tokens must remain private.
+
 ## 1. Clerk
 
 Create a Clerk application with email sign-in and verified email addresses. For testing use its development instance. Enable the authentication methods your company intends to use; disable unused ones. The app uses Clerk's prebuilt sign-in UI.
@@ -12,7 +14,7 @@ For company rollout, use a Clerk production instance and complete Clerk's produc
 
 ## 2. Supabase
 
-Create the tracker project and note its project URL (`https://PROJECT_REF.supabase.co`), project reference, and database password.
+The tracker project's URL and reference are already configured above. Keep its database password privately for backend deployment. This Vite app uses `VITE_SUPABASE_URL`; `NEXT_PUBLIC_SUPABASE_URL` is a Next.js variable and is not read by this app.
 
 The backend has a custom Clerk verifier. `verify_jwt = false` in `supabase/config.toml` disables Supabase's incompatible legacy JWT gateway check; it does **not** make the transport API anonymous. Every transport request is authenticated in the function before accessing the database.
 
@@ -38,8 +40,8 @@ Add these **Variables**:
 | Variable | Value |
 | --- | --- |
 | `VITE_CLERK_PUBLISHABLE_KEY` | Clerk Publishable key |
-| `VITE_SUPABASE_URL` | Supabase project URL |
-| `SUPABASE_PROJECT_REF` | Supabase project reference |
+| `VITE_SUPABASE_URL` | Optional override; defaults to `https://lglwlqfgjqbbizbcrvzv.supabase.co` |
+| `SUPABASE_PROJECT_REF` | Optional override; defaults to `lglwlqfgjqbbizbcrvzv` |
 
 Add these **Secrets**, privately in GitHub:
 

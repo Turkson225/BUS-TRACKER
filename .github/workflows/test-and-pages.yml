@@ -26,7 +26,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://postgres:test-password@localhost:5432/transport_test
       VITE_CLERK_PUBLISHABLE_KEY: ${{ vars.VITE_CLERK_PUBLISHABLE_KEY }}
-      VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL || 'https://lglwlqfgjqbbizbcrvzv.supabase.co' }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
