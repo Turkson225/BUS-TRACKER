@@ -5,6 +5,7 @@ import TransportApp from './transport-app';
 import { configured, loadClerk, signIn } from '@/lib/client';
 import 'leaflet/dist/leaflet.css';
 import './globals.css';
+import './glass.css';
 
 function App() {
   const [ready, setReady] = useState(!configured), [signedIn, setSignedIn] = useState(false), [demo, setDemo] = useState(!configured), [error, setError] = useState('');
