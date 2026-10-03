@@ -14,7 +14,7 @@ For company rollout, use a Clerk production instance and complete Clerk's produc
 
 ## 2. Supabase
 
-The tracker project's URL and reference are already configured above. Keep its database password privately for backend deployment. This Vite app uses `VITE_SUPABASE_URL`; `NEXT_PUBLIC_SUPABASE_URL` is a Next.js variable and is not read by this app.
+The tracker project's URL and reference are already configured above. Use the [dashboard deployment guide](deployment/manual/README.md) to install the database and deploy the backend without a Supabase access token or GitHub database-password secret. This Vite app uses `VITE_SUPABASE_URL`; `NEXT_PUBLIC_SUPABASE_URL` is a Next.js variable and is not read by this app.
 
 The backend has a custom Clerk verifier. `verify_jwt = false` in `supabase/config.toml` disables Supabase's incompatible legacy JWT gateway check; it does **not** make the transport API anonymous. Every transport request is authenticated in the function before accessing the database.
 
@@ -43,7 +43,7 @@ Add these **Variables**:
 | `VITE_SUPABASE_URL` | Optional override; defaults to `https://lglwlqfgjqbbizbcrvzv.supabase.co` |
 | `SUPABASE_PROJECT_REF` | Optional override; defaults to `lglwlqfgjqbbizbcrvzv` |
 
-Add these **Secrets**, privately in GitHub:
+The dashboard method does not need any deployment secrets in GitHub. If you later choose the optional GitHub backend workflow, add these **Secrets**, privately in GitHub:
 
 | Secret | Value |
 | --- | --- |
@@ -54,7 +54,9 @@ You do not need to paste private keys, tokens, or passwords into chat.
 
 ## 4. Deploy backend
 
-Open **Actions → Deploy Supabase backend → Run workflow**. The workflow links the selected Supabase project, applies the database migration, and deploys the `transport` Edge Function. It runs only when manually selected, so an ordinary source push does not alter a live database.
+For the selected dashboard method, follow [deployment/manual/README.md](deployment/manual/README.md). Its generated `setup.sql` installs the database in one transaction; its `transport.ts` is the single file to paste into the Edge Function editor. CI verifies both artifacts against the original source and tests the bundled entrypoint against an isolated PostgreSQL database.
+
+For the optional GitHub workflow, open **Actions → Deploy Supabase backend → Run workflow** after storing its deployment secrets. The workflow links the selected Supabase project, applies the database migration, and deploys the `transport` Edge Function. It runs only when manually selected, so an ordinary source push does not alter a live database.
 
 For a CLI alternative, install the Supabase CLI, log in, and run:
 

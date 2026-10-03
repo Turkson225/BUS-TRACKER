@@ -40,6 +40,9 @@ jobs:
           deno-version: v2.x
       - name: Check Supabase Edge Function
         run: deno check --config supabase/functions/transport/deno.json supabase/functions/transport/index.ts
+      - run: pnpm manual:check
+      - name: Check dashboard backend entrypoint
+        run: deno check deployment/manual/transport.ts
       - run: pnpm typecheck
       - run: pnpm db:generate
       - run: pnpm build

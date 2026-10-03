@@ -1,6 +1,6 @@
 # Test the tracker
 
-The website workflow runs TypeScript checks, the production Pages build, the schema/query-registry check, and isolated tests against PostgreSQL. Test identities, GPS trails, and sender responses are fixtures; they do not prove live phone behavior or email delivery.
+The website workflow runs TypeScript checks, the production Pages build, the schema/query-registry check, and isolated tests against PostgreSQL. It also checks the generated dashboard deployment, tests its actual bundled Clerk verifier and administrator setup, and confirms that a failed or repeated SQL installation preserves the database. Test identities, GPS trails, and sender responses are fixtures; they do not prove live phone behavior or email delivery.
 
 ## Account and route test
 

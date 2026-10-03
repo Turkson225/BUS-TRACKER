@@ -10,8 +10,10 @@
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
     "typecheck": "tsc --noEmit",
-    "test": "node scripts/check-auth.mjs && node scripts/check-postgres.mjs && node scripts/check-worker.mjs && node scripts/check-alerts.mjs && node scripts/check-recorded-alerts.mjs && node scripts/check-email-relay.mjs && node scripts/check-pages.mjs",
-    "db:generate": "node scripts/generate-database.mjs --check"
+    "test": "node scripts/check-auth.mjs && node scripts/check-manual-deployment.mjs && node scripts/check-postgres.mjs && node scripts/check-worker.mjs && node scripts/check-alerts.mjs && node scripts/check-recorded-alerts.mjs && node scripts/check-email-relay.mjs && node scripts/check-pages.mjs",
+    "db:generate": "node scripts/generate-database.mjs --check",
+    "manual:generate": "node scripts/generate-manual-deployment.mjs",
+    "manual:check": "node scripts/generate-manual-deployment.mjs --check"
   },
   "dependencies": {
     "@block65/webcrypto-web-push": "^2.0.0",
