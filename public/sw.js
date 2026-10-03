@@ -1,0 +1,3 @@
+const home=new URL('./',self.registration.scope).href;
+self.addEventListener('push',event=>{let data={title:'OnRoute',body:'Your bus has an update.',tag:'onroute'};try{data={...data,...event.data.json()};}catch{}event.waitUntil(self.registration.showNotification(data.title,{body:data.body,tag:data.tag,icon:home+'icon-192.png',badge:home+'icon-192.png',data:{url:home}}));});
+self.addEventListener('notificationclick',event=>{event.notification.close();event.waitUntil(clients.matchAll({type:'window',includeUncontrolled:true}).then(list=>{const tab=list.find(c=>c.url.startsWith(home));if(tab)return tab.focus();return clients.openWindow(home);}));});

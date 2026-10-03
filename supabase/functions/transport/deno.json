@@ -1,0 +1,6 @@
+{
+  "imports": {
+    "zod": "npm:zod@3.25.76",
+    "@block65/webcrypto-web-push": "npm:@block65/webcrypto-web-push@2.0.0"
+  }
+}

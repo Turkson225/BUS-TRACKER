@@ -1,0 +1,7 @@
+project_id = "onroute-bus-tracker"
+
+[functions.transport]
+enabled = true
+# Clerk tokens are verified in core/auth.ts. They are not Supabase Auth JWTs.
+verify_jwt = false
+entrypoint = "./functions/transport/index.ts"

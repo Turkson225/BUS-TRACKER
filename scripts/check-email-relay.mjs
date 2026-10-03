@@ -1,0 +1,17 @@
+import {readFile} from 'node:fs/promises';
+import vm from 'node:vm';
+import assert from 'node:assert/strict';
+const values=new Map([['ONROUTE_SECRET','x'.repeat(64)]]),sent=[];
+let quota=100,locked=false;
+const properties={getProperty:k=>values.get(k)??null,setProperty:(k,v)=>values.set(k,v),deleteProperty:k=>values.delete(k),getProperties:()=>Object.fromEntries(values)};
+const context=vm.createContext({PropertiesService:{getScriptProperties:()=>properties},LockService:{getScriptLock:()=>({tryLock:()=>{locked=true;return true;},hasLock:()=>locked,releaseLock:()=>locked=false})},MailApp:{getRemainingDailyQuota:()=>quota,sendEmail:mail=>sent.push(mail)},ContentService:{MimeType:{JSON:'json'},createTextOutput:text=>({setMimeType:()=>text})},Date,console:{log:()=>{}},Utilities:{getUuid:()=>crypto.randomUUID()}});
+vm.runInContext(await readFile(new URL('./google-email-relay.gs',import.meta.url),'utf8'),context);
+const event={secret:'x'.repeat(64),eventId:crypto.randomUUID(),to:'worker@example.test',subject:'The bus is at your pickup point',body:'Head to your pickup point.'};
+const post=v=>JSON.parse(context.doPost({postData:{contents:JSON.stringify(v)}}));
+assert.equal(post({...event,secret:'wrong'}).ok,false);assert.equal(sent.length,0);
+assert.equal(post({...event,to:'a@example.test,b@example.test'}).ok,false);
+assert.equal(post({...event,subject:'Forged\nSubject'}).ok,false);
+assert.equal(post(event).ok,true);assert.equal(sent.length,1);assert.equal(post(event).ok,true);assert.equal(sent.length,1,'same event is never sent twice');assert.equal(locked,false);
+quota=0;assert.equal(post({...event,eventId:crypto.randomUUID()}).ok,false);assert.equal(sent.length,1);
+const uncertain=crypto.randomUUID();values.set('EVENT_'+uncertain,JSON.stringify({status:'reserved',time:Date.now()}));assert.equal(post({...event,eventId:uncertain}).uncertain,true);assert.equal(sent.length,1);
+console.log('Email relay checks passed: authentication, single-recipient validation, quota handling, locked idempotency and uncertain-delivery protection. No real messages were sent.');
