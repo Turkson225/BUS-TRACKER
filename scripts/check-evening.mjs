@@ -16,9 +16,9 @@ await call('admin',{action:'bus',bus:{id:'bus',name:'Company bus',plate:'TEST',r
 await call('worker',{action:'night-driver',email:'night@example.test'},403);await call('admin',{action:'night-driver',email:'worker@example.test'},400);await call('admin',{action:'night-driver',email:'night@example.test'});
 await call('worker',{action:'pickup',pickup:{lat:4.9,lng:-1.7,name:'Morning point',radius:1000,emailArrival:true}});
 await call('worker',{action:'home',home:{lat:4.93,lng:-1.7,name:'My home',radius:1000,emailArrival:true}});
-const days=Array.from({length:7},(_,i)=>({date:`2026-10-${String(4+i).padStart(2,'0')}`,shiftLabel:'Day shift',onShift:i===0,morning:i===0,evening:i===0}));
+const days=Array.from({length:7},(_,i)=>({date:`2026-10-${String(4+i).padStart(2,'0')}`,shiftLabel:'Day shift',onShift:i%2===0,morning:i%2===0,evening:i%2===0}));
 await call('worker',{action:'weekly-shifts',name:'Worker submitted name',email:'forged@example.test',days});
-const weekly=(await call('worker')).weekly;assert.equal(weekly.length,7);assert.ok(weekly.every(d=>d.email==='worker@example.test'));checks++;
+const weekly=(await call('worker')).weekly;assert.equal(weekly.length,7);assert.equal(weekly.filter(d=>d.onShift).length,4,'multiple independent working days are saved in one submission');assert.deepEqual(weekly.filter(d=>d.onShift).map(d=>d.date),['2026-10-04','2026-10-06','2026-10-08','2026-10-10']);assert.ok(weekly.every(d=>d.email==='worker@example.test'));checks++;
 assert.equal((await call('worker')).pickup.name,'Morning point');assert.equal((await call('worker')).home.name,'My home');checks++;
 await call('worker',{action:'weekly-shifts',name:'Worker',days:days.map((d,i)=>i===1?{...d,date:days[0].date}:d)},400);
 await call('worker',{action:'weekly-shifts',name:'Worker',days:days.map((d,i)=>i===1?{...d,morning:true}:d)},400);

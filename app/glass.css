@@ -520,3 +520,18 @@ button:disabled { opacity: .55; box-shadow: none; }
 .service-passengers { margin-top:24px; }
 @media(max-width:950px) { .service-passenger-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:680px) { .service-passenger-grid { grid-template-columns:1fr; } .service-choice { padding:16px; gap:8px; } .service-choice label { width:100%; min-width:0; } .service-select { font-size:16px; } .weekly-day-heading { flex-wrap:wrap; } .weekly-rides { flex-direction:column; gap:0; } .panel .service-checkbox { font-size:14px!important; } .weekly-service .page-heading h2 { font-size:23px; } }
+
+/* Multiple working days can be selected independently within a submitted week. */
+.working-day-picker { min-width:0; padding:0; border:0; margin:22px 0 0; }
+.working-day-picker legend { color:#0f172a; font-size:15px; font-weight:700; }
+.working-day-picker > p { margin:8px 0 14px; color:#64748b; font-size:13px; line-height:1.6; }
+.working-day-shortcuts { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
+.working-day-shortcuts button { min-height:40px; padding:8px 13px; border:1px solid #c4b5fd; border-radius:9px; background:#ffffffb3; color:#5b21b6; font-size:12px; font-weight:600; }
+.working-day-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:9px; }
+.working-day-grid button { display:grid; justify-items:center; gap:4px; min-height:96px; min-width:0; padding:12px 7px; border:1px solid #cbd5e1; border-radius:12px; background:#ffffffb3; color:#475569; }
+.working-day-grid button[aria-pressed=true] { background:#6d28d9; border-color:#5b21b6; color:#fff; box-shadow:0 4px 12px #7c3aed26; }
+.working-day-grid span { font-size:12px; font-weight:600; }
+.working-day-grid strong { font-size:23px; line-height:1.2; }
+.working-day-grid small { font-size:10px; color:inherit; }
+.working-day-picker .working-day-count { font-weight:600; color:#5b21b6; margin-top:14px; }
+@media(max-width:400px) { .working-day-grid { grid-template-columns:repeat(3,minmax(0,1fr)); } }
