@@ -25,7 +25,7 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       DATABASE_URL: postgresql://postgres:test-password@localhost:5432/transport_test
-      VITE_CLERK_PUBLISHABLE_KEY: ${{ vars.VITE_CLERK_PUBLISHABLE_KEY }}
+      VITE_CLERK_PUBLISHABLE_KEY: ${{ vars.VITE_CLERK_PUBLISHABLE_KEY || 'pk_test_ZHJpdmVuLWRpbmdvLTk1NTYuY2xlcmsuYWNjb3VudHMuZGV2JA' }}
       VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL || 'https://lglwlqfgjqbbizbcrvzv.supabase.co' }}
     steps:
       - uses: actions/checkout@v4

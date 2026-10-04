@@ -23,14 +23,14 @@ Expected results: **10** tables and version **20261003200000**.
 
 ## 2. Add Clerk settings privately
 
-Create or open your Clerk application. For initial testing, use its development instance with email sign-in and verified email addresses. Copy the Publishable key and Frontend API URL from its API keys page. Use the same Clerk instance for all settings.
+Open the Clerk application whose development Frontend API URL is **https://driven-dingo-9556.clerk.accounts.dev**. The website workflow already defaults to its supplied Publishable key. Enable email sign-in and verified email addresses, and copy its Secret key privately from its API keys page. Use this same Clerk instance for all settings. If choosing a different instance, override the website Publishable key as described below and use that instance's matching issuer and Secret key.
 
 In **Supabase → Edge Functions → Secrets**, enter and save:
 
 | Name | Value |
 | --- | --- |
 | `CLERK_SECRET_KEY` | Clerk Secret key, entered privately here |
-| `CLERK_ISSUER` | Full Clerk Frontend API origin, for example `https://YOUR-INSTANCE.clerk.accounts.dev` |
+| `CLERK_ISSUER` | `https://driven-dingo-9556.clerk.accounts.dev` for the supplied development instance |
 | `ADMIN_EMAIL` | Your own verified primary sign-in email |
 | `APP_ORIGIN` | `https://turkson225.github.io` |
 
@@ -50,7 +50,7 @@ Open that address in a browser without signing in. Expected result: HTTP **401**
 
 ## 4. Connect website sign-in
 
-Open https://github.com/Turkson225/BUS-TRACKER/settings/variables/actions and create **VITE_CLERK_PUBLISHABLE_KEY**, using Clerk's Publishable key (`pk_test_...` for development).
+The supplied Clerk development Publishable key is already the website workflow's default. To use another Clerk instance, open https://github.com/Turkson225/BUS-TRACKER/settings/variables/actions and create **VITE_CLERK_PUBLISHABLE_KEY** with that instance's Publishable key (`pk_test_...` for development), then update its matching Supabase Clerk secrets.
 
 The Supabase URL is already configured. Open the repository's **Actions → Test and publish website → Run workflow**, select `main`, and wait for success.
 

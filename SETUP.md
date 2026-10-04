@@ -4,6 +4,8 @@ Use a dedicated Supabase project for this tracker. The initial migration creates
 
 The configured tracker project is **https://lglwlqfgjqbbizbcrvzv.supabase.co** (reference **lglwlqfgjqbbizbcrvzv**). GitHub's website and backend workflows now use these as defaults. The URL is public configuration; database passwords and deployment tokens must remain private.
 
+The website workflow also defaults to the supplied Clerk development Publishable key for **driven-dingo-9556.clerk.accounts.dev**. Its matching `CLERK_ISSUER` is **https://driven-dingo-9556.clerk.accounts.dev**. Set the matching Clerk Secret key privately in Supabase. A GitHub `VITE_CLERK_PUBLISHABLE_KEY` variable can override the default when changing Clerk instances.
+
 ## 1. Clerk
 
 Create a Clerk application with email sign-in and verified email addresses. For testing use its development instance. Enable the authentication methods your company intends to use; disable unused ones. The app uses Clerk's prebuilt sign-in UI.
@@ -23,7 +25,7 @@ In **Supabase → Edge Functions → Secrets**, add:
 | Secret | Value |
 | --- | --- |
 | `CLERK_SECRET_KEY` | Your Clerk application's Secret key |
-| `CLERK_ISSUER` | Clerk Frontend API origin, such as `https://YOUR-INSTANCE.clerk.accounts.dev` |
+| `CLERK_ISSUER` | `https://driven-dingo-9556.clerk.accounts.dev` for the supplied development instance; use the matching Frontend API origin if overriding the Publishable key |
 | `ADMIN_EMAIL` | Your own verified Clerk primary email; only this address can initialize the company |
 | `APP_ORIGIN` | `https://turkson225.github.io` — origin only, without `/BUS-TRACKER/` |
 
@@ -39,7 +41,7 @@ Add these **Variables**:
 
 | Variable | Value |
 | --- | --- |
-| `VITE_CLERK_PUBLISHABLE_KEY` | Clerk Publishable key |
+| `VITE_CLERK_PUBLISHABLE_KEY` | Optional override; the website defaults to the supplied Clerk development Publishable key |
 | `VITE_SUPABASE_URL` | Optional override; defaults to `https://lglwlqfgjqbbizbcrvzv.supabase.co` |
 | `SUPABASE_PROJECT_REF` | Optional override; defaults to `lglwlqfgjqbbizbcrvzv` |
 
