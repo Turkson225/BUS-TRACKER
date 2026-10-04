@@ -1,16 +1,17 @@
+export type Service='morning'|'evening';
 export type Point={lat:number;lng:number};
 export type RecordedPoint=Point&{accuracy:number;capturedAt:number};
 export type PickupPoint=Point&{name:string;offset:number};
 export type PickupProfile=PickupPoint&{busId:string;routeId:string;routeRevision:number;radius:number;emailArrival:number};
-export type RouteRecording={id:string;name:string;status:string;points:RecordedPoint[];pointCount:number;createdAt:number;updatedAt:number};
+export type RouteRecording={service?:Service;id:string;name:string;status:string;points:RecordedPoint[];pointCount:number;createdAt:number;updatedAt:number};
 export type Stop={id:string;name:string;lat:number;lng:number;time:string};
-export type Route={id:string;name:string;color:string;stops:Stop[];path?:Point[];revision?:number;recorded?:number};
-export type Bus={id:string;name:string;plate:string;routeId:string};
-export type Trip={id:string;busId:string;routeId:string;driverId:string;driverName:string;date:string;status:string;test:number;nextStop:number;lat:number|null;lng:number|null;accuracy:number|null;speed:number|null;updatedAt:number|null;startedAt:number;delayMinutes:number;driverEpoch:number;handoverEmail:string|null;handoverName:string|null;routeProgress?:number};
+export type Route={service?:Service;id:string;name:string;color:string;stops:Stop[];path?:Point[];revision?:number;recorded?:number};
+export type Bus={nightRouteId?:string|null;id:string;name:string;plate:string;routeId:string};
+export type Trip={service?:Service;id:string;busId:string;routeId:string;driverId:string;driverName:string;date:string;status:string;test:number;nextStop:number;lat:number|null;lng:number|null;accuracy:number|null;speed:number|null;updatedAt:number|null;startedAt:number;delayMinutes:number;driverEpoch:number;handoverEmail:string|null;handoverName:string|null;routeProgress?:number};
 export type Shift={date:string;busId:string;routeId:string;stopId:string;onShift:number;radius:number;pickup?:PickupPoint|null;emailArrival?:number;routeRevision?:number};
 export type Alert={id:string;title:string;body:string;createdAt:number;kind:string;pushState:string;emailState?:string};
 export type Member={email:string;name:string;role:string;section:string|null};
-export type State={user:{id:string;name:string;email:string;role:string;section:string|null}|null;configured:boolean;company:string;today:string;inWindow:boolean;routes:Route[];buses:Bus[];trips:Trip[];shift:Shift|null;alerts:Alert[];members:Member[];vapidPublicKey:string|null;pickup:PickupProfile|null;recording:RouteRecording|null;emailReady:boolean};
+export type State={eveningReady?:boolean;inEveningWindow?:boolean;nightDriverEmail?:string|null;home?:HomePoint|null;weekly?:WeeklyDay[];passengers?:Passenger[];tripHistory?:Trip[];user:{id:string;name:string;email:string;role:string;section:string|null}|null;configured:boolean;company:string;today:string;inWindow:boolean;routes:Route[];buses:Bus[];trips:Trip[];shift:Shift|null;alerts:Alert[];members:Member[];vapidPublicKey:string|null;pickup:PickupProfile|null;recording:RouteRecording|null;emailReady:boolean};
 export const dateInAccra=(date=new Date())=>new Intl.DateTimeFormat('en-CA',{timeZone:'Africa/Accra',year:'numeric',month:'2-digit',day:'2-digit'}).format(date);
 export function inPickupWindow(date=new Date()){const h=Number(new Intl.DateTimeFormat('en-GB',{timeZone:'Africa/Accra',hour:'2-digit',hourCycle:'h23'}).format(date));return h>=6&&h<8;}
 export function distance(a:{lat:number;lng:number},b:{lat:number;lng:number}){const r=Math.PI/180;const v=Math.sin((b.lat-a.lat)*r/2)**2+Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin((b.lng-a.lng)*r/2)**2;return 6371000*2*Math.atan2(Math.sqrt(v),Math.sqrt(1-v));}
@@ -37,3 +38,8 @@ export function projectPoint(point:Point,path:Point[],minOffset=-Infinity,prefer
 }
 export function progressAt(t:Trip,r:Route,p:Point&{accuracy?:number}){const current=t.routeProgress??0;if((p.accuracy??999)>100)return current;const projection=projectPoint(p,routePath(r),current-100,current);return projection&&projection.distance<=150?Math.max(current,projection.offset):current;}
 export function pickupDistance(t:Trip,r:Route,p:PickupPoint){if(t.lat===null||t.lng===null)return null;const projection=projectPoint({lat:t.lat,lng:t.lng},routePath(r),(t.routeProgress??0)-100,t.routeProgress??0);if(!projection||projection.distance>150||p.offset<(t.routeProgress??0)-150)return null;return Math.max(0,p.offset-projection.offset);}
+
+export type HomePoint=Point&{name:string;radius:number;emailArrival:number};
+export type WeeklyDay={date:string;name:string;email:string;shiftLabel:string;onShift:boolean;morning:boolean;evening:boolean};
+export type Passenger={shiftLabel?:string|null;userId:string;name:string;email:string;section:string|null;destination:string;lat:number;lng:number;delivered:boolean};
+export function inServiceWindow(service:Service='morning',date=new Date()){const h=Number(new Intl.DateTimeFormat('en-GB',{timeZone:'Africa/Accra',hour:'2-digit',hourCycle:'h23'}).format(date));return service==='evening'?h>=18&&h<21:h>=6&&h<8;}

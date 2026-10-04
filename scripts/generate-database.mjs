@@ -12,7 +12,7 @@ const baseline=await readFile(baselineFile,'utf8');
 const baselineQueries=new Map([...baseline.matchAll(/   WHEN '([a-f0-9]{64})' THEN '((?:[^']|'')*)'\n/g)].map(match=>[match[1],match[2].replaceAll("''","'")]));
 if(baselineQueries.size!==66)throw new Error('Unexpected baseline operation registry.');
 const queries=new Map();
-for(const filename of ['api.ts','recordings.ts','email.ts']){
+for(const filename of ['api.ts','recordings.ts','email.ts','service.ts']){
  const source=ts.createSourceFile(filename,await readFile(root+'/supabase/functions/transport/core/'+filename,'utf8'),ts.ScriptTarget.Latest,true);
  const constants=new Map();
  function literal(node){if(ts.isStringLiteral(node)||ts.isNoSubstitutionTemplateLiteral(node))return node.text;if(ts.isIdentifier(node)&&constants.has(node.text))return constants.get(node.text);if(ts.isBinaryExpression(node)&&node.operatorToken.kind===ts.SyntaxKind.PlusToken)return literal(node.left)+literal(node.right);throw new Error('Database query must be a static string: '+node.getText(source));}
@@ -68,10 +68,12 @@ GRANT EXECUTE ON FUNCTION public.transport_execute(jsonb) TO service_role;
 `;
 return sql;}
 if(schema+registry(baselineQueries)!==baseline)throw new Error('The installed baseline schema must stay unchanged; add a new migration.');
-const operations=new Map(baselineQueries);
+const previous=await readFile(root+'/supabase/migrations/20261004120000_worker_sections.sql','utf8');
+const operations=new Map([...previous.matchAll(/   WHEN '([a-f0-9]{64})' THEN '((?:[^']|'')*)'\n/g)].map(match=>[match[1],match[2].replaceAll("''","'")]));
 for(const [hash,query] of queries){let pg=query.replace(/^INSERT OR IGNORE INTO /,'INSERT INTO ');if(query.startsWith('INSERT OR IGNORE'))pg+=' ON CONFLICT DO NOTHING';operations.set(hash,pg);}
-const fixture=(await readFile(root+'/scripts/fixtures/0004_worker_sections.sql','utf8')).replaceAll('`','"');
-const upgrade='-- Generated worker-section upgrade. Preserves existing members, routes and trips.\nSET search_path = transport_private, pg_catalog;\n'+fixture+'RESET search_path;\n'+registry(operations);
-const file=root+'/supabase/migrations/20261004120000_worker_sections.sql';
+let fixture=(await readFile(root+'/scripts/fixtures/0005_evening_weekly.sql','utf8')).replaceAll('`','"').replace(/\binteger\b/g,'bigint').replace(/\breal\b/g,'double precision');
+for(const table of ['homes','weekly_shifts','night_bookings','trip_points','night_deliveries'])fixture+=`\nALTER TABLE ${table} ENABLE ROW LEVEL SECURITY;\nREVOKE ALL ON ${table} FROM PUBLIC, anon, authenticated;\n`;
+const upgrade='-- Generated evening and weekly-shift upgrade. Preserves existing company data.\nSET search_path = transport_private, pg_catalog;\n'+fixture+'RESET search_path;\n'+registry(operations);
+const file=root+'/supabase/migrations/20261004173000_evening_weekly.sql';
 if(process.argv.includes('--check')){if(await readFile(file,'utf8')!==upgrade)throw new Error('Migration query registry is out of date; run node scripts/generate-database.mjs.');}else await writeFile(file,upgrade);
-console.log('Verified',queries.size,'current fixed server operations, immutable baseline and worker-section upgrade.');
+console.log('Verified',queries.size,'current fixed server operations and immutable previous migrations.');

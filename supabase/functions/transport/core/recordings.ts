@@ -4,12 +4,12 @@ import { distance,pathLength,type RecordedPoint,type RouteRecording } from './tr
 import { AppError } from './errors.ts';
 const id=z.string().min(1).max(100),name=z.string().trim().min(1).max(100);
 const point=z.object({lat:z.number().min(-85).max(85),lng:z.number().min(-180).max(180),accuracy:z.number().min(0).max(50),capturedAt:z.number().int().positive()});
-export const castRecording=(r:any):RouteRecording=>({id:r.id,name:r.name,status:r.status,points:JSON.parse(r.points),pointCount:r.point_count,createdAt:r.created_at,updatedAt:r.updated_at});
+export const castRecording=(r:any):RouteRecording=>({service:r.service??'morning',id:r.id,name:r.name,status:r.status,points:JSON.parse(r.points),pointCount:r.point_count,createdAt:r.created_at,updatedAt:r.updated_at});
 export async function recordingAction(db:D1Database,uid:string,b:any){
  if(b.action==='recording-start'){
-  const rid=crypto.randomUUID(),now=Date.now();
-  try{await db.prepare('INSERT INTO route_recordings (id,owner_id,name,status,created_at,updated_at) VALUES (?,?,?,?,?,?)').bind(rid,uid,name.parse(b.name),'recording',now,now).run();}catch(e){if(String(e).includes('UNIQUE constraint'))throw new AppError('Finish or discard your existing route recording first.',409);throw e;}
-  return {ok:true,recording:{id:rid,name:b.name.trim(),status:'recording',points:[],pointCount:0,createdAt:now,updatedAt:now}};
+  const rid=crypto.randomUUID(),now=Date.now(),service=z.enum(['morning','evening']).default('morning').parse(b.service);
+  try{await db.prepare('INSERT INTO route_recordings (id,owner_id,name,status,created_at,updated_at,service) VALUES (?,?,?,?,?,?,?)').bind(rid,uid,name.parse(b.name),'recording',now,now,service).run();}catch(e){if(String(e).includes('UNIQUE constraint'))throw new AppError('Finish or discard your existing route recording first.',409);throw e;}
+  return {ok:true,recording:{service,id:rid,name:b.name.trim(),status:'recording',points:[],pointCount:0,createdAt:now,updatedAt:now}};
  }
  const row=await db.prepare('SELECT * FROM route_recordings WHERE id=? AND owner_id=?').bind(id.parse(b.recordingId),uid).first<any>();
  if(!row)throw new AppError('Your route recording was not found.',404);
@@ -37,8 +37,8 @@ export async function recordingAction(db:D1Database,uid:string,b:any){
   if(r.points.length<2||pathLength(r.points)<100)throw new AppError('Record at least 100 metres of the route before saving it.');
   if(r.points.some((p,i)=>i>0&&distance(p,r.points[i-1])>500))throw new AppError('This trail has a GPS gap over 500 metres. Re-record it with the screen open.');
   const routeName=name.parse(b.name),path=r.points.map(({lat,lng})=>({lat,lng}));
-  const stops=[{id:crypto.randomUUID(),name:'Route start',...path[0],time:'06:00'},{id:crypto.randomUUID(),name:'Company arrival',...path.at(-1)!,time:'07:59'}];
-  const result=await db.batch([db.prepare('INSERT OR IGNORE INTO routes (id,name,color,stops,path,recorded) SELECT ?,?,?,?,?,1 WHERE EXISTS (SELECT 1 FROM route_recordings WHERE id=? AND owner_id=? AND status=?)').bind(r.id,routeName,'#BE5CA9',JSON.stringify(stops),JSON.stringify(path),r.id,uid,'review'),db.prepare('UPDATE route_recordings SET status=?,name=?,updated_at=? WHERE id=? AND owner_id=? AND status=? AND EXISTS (SELECT 1 FROM routes WHERE id=?)').bind('saved',routeName,Date.now(),r.id,uid,'review',r.id)]);
+  const stops=[{id:crypto.randomUUID(),name:'Route start',...path[0],time:r.service==='evening'?'18:00':'06:00'},{id:crypto.randomUUID(),name:r.service==='evening'?'Last home drop-off':'Company arrival',...path.at(-1)!,time:r.service==='evening'?'20:59':'07:59'}];
+  const result=await db.batch([db.prepare('INSERT OR IGNORE INTO routes (id,name,color,stops,path,recorded,service) SELECT ?,?,?,?,?,1,? WHERE EXISTS (SELECT 1 FROM route_recordings WHERE id=? AND owner_id=? AND status=?)').bind(r.id,routeName,'#BE5CA9',JSON.stringify(stops),JSON.stringify(path),r.service??'morning',r.id,uid,'review'),db.prepare('UPDATE route_recordings SET status=?,name=?,updated_at=? WHERE id=? AND owner_id=? AND status=? AND EXISTS (SELECT 1 FROM routes WHERE id=?)').bind('saved',routeName,Date.now(),r.id,uid,'review',r.id)]);
   if(!result[0].meta.changes&&!result[1].meta.changes)throw new AppError('The recording changed before it was saved. Refresh and try again.',409);
   return {ok:true,routeId:r.id};
  }

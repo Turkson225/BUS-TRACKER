@@ -11,6 +11,7 @@ const result=JSON.parse(psql('SET ROLE service_role;'+rpc([insert,select])));
 assert.equal(result[0].meta.changes,1);assert.equal(result[1].results[0].value,insert.args[1],'parameters remain literal values');
 for(const role of ['anon','authenticated']){
  assert.throws(()=>psql(`SET ROLE ${role};SELECT * FROM transport_private.settings;`));
+ for(const table of ['homes','weekly_shifts','night_bookings','trip_points','night_deliveries'])assert.throws(()=>psql(`SET ROLE ${role};SELECT * FROM transport_private.${table};`));
  assert.throws(()=>psql(`SET ROLE ${role};`+rpc([select])));
 }
 assert.throws(()=>psql('SET ROLE service_role;'+rpc([{id:'arbitrary SQL',args:[]}])));
@@ -18,5 +19,5 @@ assert.throws(()=>psql('SET ROLE service_role;'+rpc([{id:insert.id,args:[{},'val
 assert.throws(()=>psql('SET ROLE service_role;'+rpc([{id:insert.id,args:['bad-count']}])));
 assert.throws(()=>psql('SET ROLE service_role;'+rpc([{...insert,args:['rollback-me','first']},{...insert,args:['rollback-me','duplicate']}])), 'transaction fails on duplicate');
 assert.equal(psql("SELECT count(*) FROM transport_private.settings WHERE id='rollback-me';"),'0','batch is atomic');
-assert.equal(psql("SELECT count(*) FROM pg_tables WHERE schemaname='transport_private' AND rowsecurity;"),'10');
+assert.equal(psql("SELECT count(*) FROM pg_tables WHERE schemaname='transport_private' AND rowsecurity;"),'15');
 console.log('PostgreSQL checks passed: private tables, denied browser roles, fixed query whitelist, literal parameter binding, input validation and transactional rollback.');

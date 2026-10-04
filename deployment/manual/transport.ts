@@ -152,6 +152,14 @@ function pickupDistance(t, r, p) {
 	if (!projection || projection.distance > 150 || p.offset < (t.routeProgress ?? 0) - 150) return null;
 	return Math.max(0, p.offset - projection.offset);
 }
+function inServiceWindow(service = "morning", date = /* @__PURE__ */ new Date()) {
+	const h = Number(new Intl.DateTimeFormat("en-GB", {
+		timeZone: "Africa/Accra",
+		hour: "2-digit",
+		hourCycle: "h23"
+	}).format(date));
+	return service === "evening" ? h >= 18 && h < 21 : h >= 6 && h < 8;
+}
 //#endregion
 //#region node_modules/.pnpm/uint8array-extras@1.6.0/node_modules/uint8array-extras/index.js
 const objectToString = Object.prototype.toString;
@@ -3976,6 +3984,7 @@ const point = objectType({
 	capturedAt: numberType().int().positive()
 });
 const castRecording = (r) => ({
+	service: r.service ?? "morning",
 	id: r.id,
 	name: r.name,
 	status: r.status,
@@ -3986,9 +3995,9 @@ const castRecording = (r) => ({
 });
 async function recordingAction(db, uid, b) {
 	if (b.action === "recording-start") {
-		const rid = crypto.randomUUID(), now = Date.now();
+		const rid = crypto.randomUUID(), now = Date.now(), service = enumType(["morning", "evening"]).default("morning").parse(b.service);
 		try {
-			await db.prepare("INSERT INTO route_recordings (id,owner_id,name,status,created_at,updated_at) VALUES (?,?,?,?,?,?)").bind(rid, uid, name.parse(b.name), "recording", now, now).run();
+			await db.prepare("INSERT INTO route_recordings (id,owner_id,name,status,created_at,updated_at,service) VALUES (?,?,?,?,?,?,?)").bind(rid, uid, name.parse(b.name), "recording", now, now, service).run();
 		} catch (e) {
 			if (String(e).includes("UNIQUE constraint")) throw new AppError("Finish or discard your existing route recording first.", 409);
 			throw e;
@@ -3996,6 +4005,7 @@ async function recordingAction(db, uid, b) {
 		return {
 			ok: true,
 			recording: {
+				service,
 				id: rid,
 				name: b.name.trim(),
 				status: "recording",
@@ -4060,14 +4070,14 @@ async function recordingAction(db, uid, b) {
 			id: crypto.randomUUID(),
 			name: "Route start",
 			...path[0],
-			time: "06:00"
+			time: r.service === "evening" ? "18:00" : "06:00"
 		}, {
 			id: crypto.randomUUID(),
-			name: "Company arrival",
+			name: r.service === "evening" ? "Last home drop-off" : "Company arrival",
 			...path.at(-1),
-			time: "07:59"
+			time: r.service === "evening" ? "20:59" : "07:59"
 		}];
-		const result = await db.batch([db.prepare("INSERT OR IGNORE INTO routes (id,name,color,stops,path,recorded) SELECT ?,?,?,?,?,1 WHERE EXISTS (SELECT 1 FROM route_recordings WHERE id=? AND owner_id=? AND status=?)").bind(r.id, routeName, "#BE5CA9", JSON.stringify(stops), JSON.stringify(path), r.id, uid, "review"), db.prepare("UPDATE route_recordings SET status=?,name=?,updated_at=? WHERE id=? AND owner_id=? AND status=? AND EXISTS (SELECT 1 FROM routes WHERE id=?)").bind("saved", routeName, Date.now(), r.id, uid, "review", r.id)]);
+		const result = await db.batch([db.prepare("INSERT OR IGNORE INTO routes (id,name,color,stops,path,recorded,service) SELECT ?,?,?,?,?,1,? WHERE EXISTS (SELECT 1 FROM route_recordings WHERE id=? AND owner_id=? AND status=?)").bind(r.id, routeName, "#BE5CA9", JSON.stringify(stops), JSON.stringify(path), r.service ?? "morning", r.id, uid, "review"), db.prepare("UPDATE route_recordings SET status=?,name=?,updated_at=? WHERE id=? AND owner_id=? AND status=? AND EXISTS (SELECT 1 FROM routes WHERE id=?)").bind("saved", routeName, Date.now(), r.id, uid, "review", r.id)]);
 		if (!result[0].meta.changes && !result[1].meta.changes) throw new AppError("The recording changed before it was saved. Refresh and try again.", 409);
 		return {
 			ok: true,
@@ -4075,6 +4085,154 @@ async function recordingAction(db, uid, b) {
 		};
 	}
 	throw new AppError("Unknown route recording action.");
+}
+//#endregion
+//#region supabase/functions/transport/core/service.ts
+const date = stringType().regex(/^\d{4}-\d{2}-\d{2}$/);
+function validFutureDate(value) {
+	const time = Date.parse(value + "T00:00:00Z");
+	if (!Number.isFinite(time) || new Date(time).toISOString().slice(0, 10) !== value || value < dateInAccra() || value > dateInAccra(new Date(Date.now() + 31 * 864e5))) throw new AppError("Choose a valid date in the next 31 days.");
+}
+const castHome = (r) => r ? {
+	name: r.name,
+	lat: r.lat,
+	lng: r.lng,
+	radius: r.radius,
+	emailArrival: r.email_arrival
+} : null;
+const castWeekly = (r) => ({
+	date: r.date,
+	name: r.name,
+	email: r.email,
+	shiftLabel: r.shift_label,
+	onShift: !!r.on_shift,
+	morning: !!r.morning,
+	evening: !!r.evening
+});
+async function roster(db, t) {
+	if (!t) return [];
+	if (t.service === "evening") return (await db.prepare("SELECT n.*,coalesce(w.name,m.name) AS worker_name,w.shift_label,m.email,m.section,d.delivered_at FROM night_bookings n JOIN members m ON m.user_id=n.user_id LEFT JOIN weekly_shifts w ON w.user_id=n.user_id AND w.date=n.date LEFT JOIN night_deliveries d ON d.trip_id=? AND d.user_id=n.user_id WHERE n.bus_id=? AND n.route_id=? AND n.date=? AND n.on_shift=1 AND m.role=? ORDER BY m.name").bind(t.id, t.busId, t.routeId, t.date, "worker").all()).results.map((r) => ({
+		shiftLabel: r.shift_label ?? null,
+		userId: r.user_id,
+		name: r.worker_name,
+		email: r.email,
+		section: r.section,
+		destination: r.name,
+		lat: r.lat,
+		lng: r.lng,
+		delivered: !!r.delivered_at
+	}));
+	return (await db.prepare("SELECT s.*,coalesce(w.name,m.name) AS name,w.shift_label,m.email,m.section FROM shifts s JOIN members m ON m.user_id=s.user_id LEFT JOIN weekly_shifts w ON w.user_id=s.user_id AND w.date=s.date WHERE s.bus_id=? AND s.route_id=? AND s.date=? AND s.on_shift=1 AND m.role=? ORDER BY s.route_offset,m.name").bind(t.busId, t.routeId, t.date, "worker").all()).results.map((r) => ({
+		shiftLabel: r.shift_label ?? null,
+		userId: r.user_id,
+		name: r.name,
+		email: r.email,
+		section: r.section,
+		destination: r.pickup_name ?? "Scheduled pickup stop",
+		lat: r.pickup_lat,
+		lng: r.pickup_lng,
+		delivered: false
+	}));
+}
+async function serviceAction(db, u, m, b) {
+	if (b.action === "planned-passengers") {
+		if (!["admin", "driver"].includes(m.role)) throw new AppError("A driver account is required.", 403);
+		const service = enumType(["morning", "evening"]).parse(b.service);
+		if (service === "evening" && m.role !== "admin") {
+			if ((await db.prepare("SELECT value FROM settings WHERE id=?").bind("night-driver").first())?.value !== u.email.toLowerCase()) throw new AppError("Only the assigned night driver can view evening home destinations.", 403);
+		}
+		const bus = await db.prepare("SELECT * FROM buses LIMIT 1").first();
+		if (!bus) throw new AppError("Set up the bus first.");
+		const routeId = service === "evening" ? bus.night_route_id : bus.route_id;
+		if (!routeId) throw new AppError("Assign a route for this service first.");
+		return { passengers: await roster(db, {
+			id: "planned",
+			busId: bus.id,
+			routeId,
+			date: dateInAccra(),
+			service
+		}) };
+	}
+	if (b.action === "home") {
+		if (m.role !== "worker") throw new AppError("Home destinations belong to worker accounts.", 403);
+		const h = objectType({
+			name: stringType().trim().min(1).max(100),
+			lat: numberType().min(-85).max(85),
+			lng: numberType().min(-180).max(180),
+			radius: unionType([
+				literalType(500),
+				literalType(1e3),
+				literalType(2e3),
+				literalType(3e3),
+				literalType(5e3)
+			]),
+			emailArrival: booleanType()
+		}).parse(b.home);
+		await db.prepare("INSERT INTO homes (user_id,name,lat,lng,radius,email_arrival,updated_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET name=excluded.name,lat=excluded.lat,lng=excluded.lng,radius=excluded.radius,email_arrival=excluded.email_arrival,updated_at=excluded.updated_at").bind(u.userId, h.name, h.lat, h.lng, h.radius, Number(h.emailArrival), Date.now()).run();
+		return { ok: true };
+	}
+	if (b.action === "weekly-shifts") {
+		if (m.role !== "worker") throw new AppError("Weekly shifts belong to worker accounts.", 403);
+		const v = objectType({
+			name: stringType().trim().min(1).max(100),
+			days: arrayType(objectType({
+				date,
+				onShift: booleanType(),
+				morning: booleanType(),
+				evening: booleanType(),
+				shiftLabel: stringType().trim().min(1).max(100)
+			})).length(7)
+		}).parse(b);
+		v.days.forEach((d) => validFutureDate(d.date));
+		const sorted = [...v.days].sort((a, b) => a.date.localeCompare(b.date));
+		if (sorted.some((d, i) => i > 0 && Date.parse(d.date) - Date.parse(sorted[i - 1].date) !== 864e5)) throw new AppError("Submit seven consecutive days for your week.");
+		if (v.days.some((d) => !d.onShift && (d.morning || d.evening))) throw new AppError("Transport can only be requested on a working day.");
+		const bus = await db.prepare("SELECT * FROM buses LIMIT 1").first();
+		if (!bus) throw new AppError("The administrator must set up the bus first.");
+		const pickup = await db.prepare("SELECT * FROM pickups WHERE user_id=?").bind(u.userId).first();
+		const home = await db.prepare("SELECT * FROM homes WHERE user_id=?").bind(u.userId).first();
+		const route = await db.prepare("SELECT * FROM routes WHERE id=?").bind(bus.route_id).first();
+		if (v.days.some((d) => d.morning) && (!pickup || pickup.route_id !== bus.route_id || pickup.route_revision !== route?.revision)) throw new AppError("Save a pickup point on the current morning route first.");
+		if (v.days.some((d) => d.evening) && (!home || !bus.night_route_id)) throw new AppError("Save your home destination and ask the administrator to assign an evening route first.");
+		const statements = [];
+		for (const d of v.days) {
+			statements.push(db.prepare("INSERT INTO weekly_shifts (id,user_id,date,name,email,shift_label,on_shift,morning,evening,submitted_at) VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id,date) DO UPDATE SET name=excluded.name,email=excluded.email,shift_label=excluded.shift_label,on_shift=excluded.on_shift,morning=excluded.morning,evening=excluded.evening,submitted_at=excluded.submitted_at").bind(crypto.randomUUID(), u.userId, d.date, v.name, u.email.toLowerCase(), d.shiftLabel, Number(d.onShift), Number(d.morning), Number(d.evening), Date.now()));
+			if (pickup && pickup.route_id === bus.route_id && pickup.route_revision === route?.revision) statements.push(db.prepare("INSERT INTO shifts (id,user_id,date,bus_id,route_id,stop_id,on_shift,radius,pickup_lat,pickup_lng,pickup_name,route_offset,route_revision,email_arrival) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id,date) DO UPDATE SET bus_id=excluded.bus_id,route_id=excluded.route_id,stop_id=excluded.stop_id,on_shift=excluded.on_shift,radius=excluded.radius,pickup_lat=excluded.pickup_lat,pickup_lng=excluded.pickup_lng,pickup_name=excluded.pickup_name,route_offset=excluded.route_offset,route_revision=excluded.route_revision,email_arrival=excluded.email_arrival").bind(crypto.randomUUID(), u.userId, d.date, bus.id, bus.route_id, "saved-pickup", Number(d.onShift && d.morning), pickup.radius, pickup.lat, pickup.lng, pickup.name, pickup.route_offset, pickup.route_revision, pickup.email_arrival));
+			else statements.push(db.prepare("UPDATE shifts SET on_shift=0 WHERE user_id=? AND date=?").bind(u.userId, d.date));
+			if (home && bus.night_route_id) statements.push(db.prepare("INSERT INTO night_bookings (id,user_id,date,bus_id,route_id,on_shift,name,lat,lng,radius,email_arrival) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id,date) DO UPDATE SET bus_id=excluded.bus_id,route_id=excluded.route_id,on_shift=excluded.on_shift,name=excluded.name,lat=excluded.lat,lng=excluded.lng,radius=excluded.radius,email_arrival=excluded.email_arrival").bind(crypto.randomUUID(), u.userId, d.date, bus.id, bus.night_route_id, Number(d.onShift && d.evening), home.name, home.lat, home.lng, home.radius, home.email_arrival));
+			else statements.push(db.prepare("UPDATE night_bookings SET on_shift=0 WHERE user_id=? AND date=?").bind(u.userId, d.date));
+		}
+		await db.batch(statements);
+		return { ok: true };
+	}
+	if (b.action === "load-week") {
+		const start = date.parse(b.start);
+		validFutureDate(start);
+		const end = dateInAccra(new Date(Date.parse(start + "T00:00:00Z") + 6 * 864e5));
+		return { days: (await db.prepare("SELECT * FROM weekly_shifts WHERE user_id=? AND date>=? AND date<=? ORDER BY date").bind(u.userId, start, end).all()).results.map(castWeekly) };
+	}
+	if (b.action === "week-roster") {
+		if (m.role !== "admin") throw new AppError("Only the administrator can view weekly submissions.", 403);
+		const start = date.parse(b.start);
+		const time = Date.parse(start + "T00:00:00Z");
+		if (!Number.isFinite(time) || new Date(time).toISOString().slice(0, 10) !== start) throw new AppError("Choose a valid week date.");
+		const end = dateInAccra(new Date(Date.parse(start + "T00:00:00Z") + 6 * 864e5));
+		return { days: (await db.prepare("SELECT w.*,m.section FROM weekly_shifts w JOIN members m ON m.user_id=w.user_id WHERE w.date>=? AND w.date<=? ORDER BY w.date,w.name").bind(start, end).all()).results.map((r) => ({
+			...castWeekly(r),
+			section: r.section
+		})) };
+	}
+	if (b.action === "trip-history") {
+		if (m.role !== "admin") throw new AppError("Only the administrator can review trip trails.", 403);
+		const tid = stringType().min(1).max(100).parse(b.tripId);
+		return { points: (await db.prepare("SELECT lat,lng,accuracy,captured_at FROM trip_points WHERE trip_id=? ORDER BY captured_at LIMIT 10000").bind(tid).all()).results.map((r) => ({
+			lat: r.lat,
+			lng: r.lng,
+			accuracy: r.accuracy,
+			capturedAt: r.captured_at
+		})) };
+	}
+	throw new AppError("Unknown service action.");
 }
 //#endregion
 //#region supabase/functions/transport/core/email.ts
@@ -4119,7 +4277,7 @@ async function deliverEmails(db, tid) {
 	const pending = await db.prepare("SELECT * FROM alerts WHERE trip_id=? AND email_state IN ('pending','failed') AND email_attempts<3 AND created_at>? LIMIT 50").bind(tid, Date.now() - 12e4).all();
 	for (let i = 0; i < pending.results.length; i += 5) await Promise.allSettled(pending.results.slice(i, i + 5).map(async (a) => {
 		if (!(await db.prepare("UPDATE alerts SET email_state='sending',email_attempts=email_attempts+1 WHERE id=? AND email_attempts=? AND email_state IN ('pending','failed')").bind(a.id, a.email_attempts).run()).meta.changes) return;
-		const state = (await db.prepare("SELECT m.email FROM members m JOIN shifts s ON s.user_id=m.user_id JOIN trips t ON t.id=? JOIN routes r ON r.id=t.route_id WHERE m.user_id=? AND s.date=t.date AND s.bus_id=t.bus_id AND s.route_id=t.route_id AND s.route_revision=r.revision AND s.on_shift=1 AND s.email_arrival=1").bind(tid, a.user_id).first())?.email === a.email_to ? await sendEmail(a.id, a.email_to, a.title, a.body + "\n\nOnRoute company bus tracker · Arrival detected from phone GPS.") : "cancelled";
+		const state = ((await db.prepare("SELECT service FROM trips WHERE id=?").bind(tid).first())?.service === "evening" ? await db.prepare("SELECT m.email FROM members m JOIN night_bookings n ON n.user_id=m.user_id JOIN trips t ON t.id=? WHERE m.user_id=? AND n.date=t.date AND n.bus_id=t.bus_id AND n.route_id=t.route_id AND n.on_shift=1 AND n.email_arrival=1 AND m.role=?").bind(tid, a.user_id, "worker").first() : await db.prepare("SELECT m.email FROM members m JOIN shifts s ON s.user_id=m.user_id JOIN trips t ON t.id=? JOIN routes r ON r.id=t.route_id WHERE m.user_id=? AND s.date=t.date AND s.bus_id=t.bus_id AND s.route_id=t.route_id AND s.route_revision=r.revision AND s.on_shift=1 AND s.email_arrival=1").bind(tid, a.user_id).first())?.email === a.email_to ? await sendEmail(a.id, a.email_to, a.title, a.body + "\n\nOnRoute company bus tracker · Arrival detected from phone GPS.") : "cancelled";
 		await db.prepare("UPDATE alerts SET email_state=? WHERE id=?").bind(state, a.id).run();
 	}));
 }
@@ -4153,9 +4311,16 @@ function freshLocation(b) {
 	return v;
 }
 async function activeWindow(t, db) {
-	if (t.date !== dateInAccra() || !t.test && !inPickupWindow() || t.test && Date.now() - t.startedAt > 72e5) {
+	if (t.date !== dateInAccra() || !t.test && !inServiceWindow(t.service) || t.test && Date.now() - t.startedAt > 72e5) {
 		await db.prepare("UPDATE trips SET status=?,handover_email=NULL,handover_name=NULL,driver_epoch=driver_epoch+1 WHERE id=? AND status=? AND driver_epoch=?").bind("ended", t.id, "active", t.driverEpoch).run();
 		throw new AppError("The trip window has ended. Location sharing is now stopped.", 409);
+	}
+}
+async function expireTrips(db) {
+	const active = await db.prepare("SELECT * FROM trips WHERE status=?").bind("active").all();
+	for (const row of active.results) {
+		const t = castTrip(row);
+		if (t.date !== dateInAccra() || !t.test && !inServiceWindow(t.service) || t.test && Date.now() - t.startedAt > 72e5) await db.prepare("UPDATE trips SET status=? WHERE id=? AND status=? AND driver_epoch=?").bind("ended", t.id, "active", t.driverEpoch).run();
 	}
 }
 function checkEpoch(t, b) {
@@ -4169,15 +4334,17 @@ const stop = objectType({
 	name: str,
 	lat: numberType().min(-85).max(85),
 	lng: numberType().min(-180).max(180),
-	time: stringType().regex(/^0[67]:[0-5]\d$/)
+	time: stringType().regex(/^(?:0[67]|1[8-9]|20):[0-5]\d$/)
 });
 const routeSchema = objectType({
 	id: id.optional(),
 	name: str,
 	color: stringType().regex(/^#[0-9a-fA-F]{6}$/),
-	stops: arrayType(stop).min(2).max(50)
+	stops: arrayType(stop).min(2).max(50),
+	service: enumType(["morning", "evening"]).default("morning")
 });
 const castTrip = (r) => ({
+	service: r.service ?? "morning",
 	id: r.id,
 	busId: r.bus_id,
 	routeId: r.route_id,
@@ -4301,7 +4468,26 @@ const castPickup = (s) => s ? {
 	emailArrival: s.email_arrival
 } : null;
 async function createAlerts(db, t, r, busName) {
-	if (t.test || t.handoverName || !inPickupWindow() || t.date !== dateInAccra() || !t.updatedAt || Date.now() - t.updatedAt > 3e4 || (t.accuracy ?? 999) > 100) return;
+	if (t.test || t.handoverName || !inServiceWindow(t.service) || t.date !== dateInAccra() || !t.updatedAt || Date.now() - t.updatedAt > 3e4 || (t.accuracy ?? 999) > 100) return;
+	if (t.service === "evening") {
+		const workers = await db.prepare("SELECT n.*,m.email,d.delivered_at FROM night_bookings n JOIN members m ON m.user_id=n.user_id LEFT JOIN night_deliveries d ON d.trip_id=? AND d.user_id=n.user_id WHERE n.bus_id=? AND n.route_id=? AND n.date=? AND n.on_shift=1 AND m.role=?").bind(t.id, t.busId, t.routeId, t.date, "worker").all();
+		const statements = [];
+		for (const w of workers.results) {
+			if (w.delivered_at) continue;
+			const d = distance({
+				lat: t.lat,
+				lng: t.lng
+			}, w), at = d <= 120 && (t.accuracy ?? 999) <= 60;
+			const kind = at ? "arrived" : d <= w.radius ? "approaching" : null;
+			if (!kind) continue;
+			const title = at ? `${busName} is near your home destination` : `Your home drop-off is approaching`, body = at ? `The bus is near ${w.name}. Prepare to alight when the driver stops safely.` : `About ${Math.max(.1, d / 1e3).toFixed(1)} km straight-line distance to ${w.name}. Check with the driver before alighting.`;
+			const mail = at && w.email_arrival ? w.email : null;
+			statements.push(db.prepare("INSERT OR IGNORE INTO alerts (id,user_id,trip_id,kind,title,body,created_at,push_state,email_to,email_state) VALUES (?,?,?,?,?,?,?,?,?,?)").bind(crypto.randomUUID(), w.user_id, t.id, kind, title, body, Date.now(), "pending", mail, mail ? emailReady() ? "pending" : "not-configured" : "not-requested"));
+		}
+		if (statements.length) await db.batch(statements);
+		waitUntil(deliver(db, t.id));
+		return;
+	}
 	const workers = await db.prepare("SELECT s.*,m.email FROM shifts s LEFT JOIN members m ON m.user_id=s.user_id WHERE s.bus_id=? AND s.route_id=? AND s.date=? AND s.on_shift=1").bind(t.busId, t.routeId, t.date).all();
 	const statements = [];
 	for (const w of workers.results) {
@@ -4352,7 +4538,22 @@ async function GET() {
 			db.prepare("SELECT * FROM pickups WHERE user_id=?").bind(u.userId).first(),
 			m?.role === "admin" ? db.prepare("SELECT * FROM route_recordings WHERE owner_id=? AND status IN ('recording','review') LIMIT 1").bind(u.userId).first() : Promise.resolve(null)
 		]);
+		const current = tt.results.map(castTrip).find((t) => t.test && Date.now() - t.startedAt <= 72e5 || !t.test && inServiceWindow(t.service));
+		const [home, weekly, nightDriver, history] = await Promise.all([
+			db.prepare("SELECT * FROM homes WHERE user_id=?").bind(u.userId).first(),
+			db.prepare("SELECT * FROM weekly_shifts WHERE user_id=? AND date>=? AND date<=? ORDER BY date").bind(u.userId, today, dateInAccra(new Date(Date.now() + 31 * 864e5))).all(),
+			db.prepare("SELECT value FROM settings WHERE id=?").bind("night-driver").first(),
+			m?.role === "admin" ? db.prepare("SELECT * FROM trips ORDER BY started_at DESC LIMIT 30").all() : Promise.resolve({ results: [] })
+		]);
+		const passengers = await roster(db, current && (m?.role === "admin" || m?.role === "driver" && (current.driverId === u.userId || current.service !== "evening" && current.handoverEmail === u.email.toLowerCase())) ? current : null);
 		return json({
+			eveningReady: true,
+			inEveningWindow: inServiceWindow("evening"),
+			nightDriverEmail: ["admin", "driver"].includes(m?.role) ? nightDriver?.value ?? null : null,
+			home: castHome(home),
+			weekly: weekly.results.map(castWeekly),
+			passengers,
+			tripHistory: history.results.map(castTrip),
 			configured: !!config,
 			company: config?.value ?? "Your company",
 			today,
@@ -4369,12 +4570,13 @@ async function GET() {
 				id: b.id,
 				name: b.name,
 				plate: b.plate,
-				routeId: b.route_id
+				routeId: b.route_id,
+				nightRouteId: b.night_route_id
 			})),
 			trips: tt.results.map(castTrip).map((t) => ({
 				...t,
 				handoverEmail: ["admin", "driver"].includes(m?.role) ? t.handoverEmail : null
-			})).filter((t) => t.test && Date.now() - t.startedAt <= 72e5 || !t.test && inPickupWindow()),
+			})).filter((t) => t.test && Date.now() - t.startedAt <= 72e5 || !t.test && inServiceWindow(t.service)),
 			shift: castShift(shift),
 			alerts: aa.results.map((a) => ({
 				id: a.id,
@@ -4423,26 +4625,30 @@ async function POST(req) {
 			await db.prepare("UPDATE settings SET value = ? WHERE id = ?").bind(str.parse(b.company), "company").run();
 		} else if (action === "route") {
 			admin(m);
+			await expireTrips(db);
 			const r = routeSchema.parse(b.route);
-			if (new Set(r.stops.map((s) => s.id)).size !== r.stops.length || r.stops.some((s, i) => i > 0 && s.time < r.stops[i - 1].time)) throw new AppError("Stop IDs must be unique and pickup times must be in order between 06:00 and 07:59.");
+			if (new Set(r.stops.map((s) => s.id)).size !== r.stops.length || r.stops.some((s, i) => i > 0 && s.time < r.stops[i - 1].time || !(r.service === "evening" ? /^(?:1[89]|20):[0-5]\d$/ : /^0[67]:[0-5]\d$/).test(s.time))) throw new AppError("Stop times must be in order within the selected service window.");
 			const rid = r.id ?? crypto.randomUUID();
 			if (await db.prepare("SELECT id FROM trips WHERE route_id = ? AND status = ?").bind(rid, "active").first()) throw new AppError("End active trips before editing this route.", 409);
-			await db.prepare("INSERT INTO routes (id,name,color,stops) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,color=excluded.color,stops=excluded.stops,revision=routes.revision+1").bind(rid, r.name, r.color, JSON.stringify(r.stops)).run();
+			await db.prepare("INSERT INTO routes (id,name,color,stops,service) VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,color=excluded.color,stops=excluded.stops,service=excluded.service,revision=routes.revision+1").bind(rid, r.name, r.color, JSON.stringify(r.stops), r.service).run();
 		} else if (action === "bus") {
 			admin(m);
+			await expireTrips(db);
 			const v = objectType({
 				id: id.optional(),
 				name: str,
 				plate: str,
-				routeId: id
+				routeId: id,
+				nightRouteId: id.nullable().optional()
 			}).parse(b.bus);
-			await getRoute(db, v.routeId);
+			if ((await getRoute(db, v.routeId)).service === "evening") throw new AppError("Assign a morning route for pickups.");
+			if (v.nightRouteId && (await getRoute(db, v.nightRouteId)).service !== "evening") throw new AppError("Assign an evening route for home drop-offs.");
 			const existing = await db.prepare("SELECT id FROM buses LIMIT 1").first();
 			if (existing && v.id !== existing.id) throw new AppError("There is one company bus. Edit its details instead of adding another.", 409);
 			const bid = v.id ?? crypto.randomUUID();
 			if (await db.prepare("SELECT id FROM trips WHERE bus_id = ? AND status = ?").bind(bid, "active").first()) throw new AppError("End this bus trip before editing it.", 409);
 			try {
-				await db.prepare("INSERT INTO buses (id,name,plate,route_id) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,plate=excluded.plate,route_id=excluded.route_id").bind(bid, v.name, v.plate, v.routeId).run();
+				await db.prepare("INSERT INTO buses (id,name,plate,route_id,night_route_id) VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,plate=excluded.plate,route_id=excluded.route_id,night_route_id=excluded.night_route_id").bind(bid, v.name, v.plate, v.routeId, v.nightRouteId ?? null).run();
 			} catch (e) {
 				if (String(e).includes("UNIQUE constraint failed: buses.slot")) throw new AppError("The company bus was already added. Refresh to edit its details.", 409);
 				throw e;
@@ -4464,7 +4670,22 @@ async function POST(req) {
 			if (existing?.role === "admin") throw new AppError("The administrator role cannot be changed here.");
 			const section = v.role === "worker" ? v.section === void 0 ? existing?.section ?? null : v.section : null;
 			await db.prepare("INSERT INTO members (email,name,role,section) VALUES (?,?,?,?) ON CONFLICT(email) DO UPDATE SET name=excluded.name,role=excluded.role,section=excluded.section").bind(v.email, v.name, v.role, section).run();
-		} else if (action === "worker-section") {
+		} else if (action === "night-driver") {
+			admin(m);
+			await expireTrips(db);
+			const email = stringType().email().max(254).transform((v) => v.toLowerCase()).parse(b.email);
+			if (!await db.prepare("SELECT email FROM members WHERE email=? AND role IN ('driver','admin')").bind(email).first()) throw new AppError("Choose an approved night driver.");
+			if (await db.prepare("SELECT id FROM trips WHERE service=? AND status=?").bind("evening", "active").first()) throw new AppError("End the evening trip before changing the night driver.", 409);
+			await db.prepare("INSERT INTO settings (id,value) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value").bind("night-driver", email).run();
+		} else if ([
+			"planned-passengers",
+			"home",
+			"weekly-shifts",
+			"load-week",
+			"week-roster",
+			"trip-history"
+		].includes(action)) return json(await serviceAction(db, u, m, b));
+		else if (action === "worker-section") {
 			if (m.role !== "worker") throw new AppError("Work sections apply to worker accounts.", 403);
 			const section = enumType([
 				"Flightops",
@@ -4536,18 +4757,24 @@ async function POST(req) {
 			if (!["admin", "driver"].includes(m.role)) throw new AppError("A driver account is required.", 403);
 			const v = objectType({
 				busId: id,
-				test: booleanType()
+				test: booleanType(),
+				service: enumType(["morning", "evening"]).default("morning")
 			}).parse(b);
-			if (!v.test && !inPickupWindow()) throw new AppError("Morning trips run from 06:00 to 08:00 GMT. Use a test trip outside those hours.");
+			if (!v.test && !inServiceWindow(v.service)) throw new AppError(v.service === "evening" ? "Evening drop-offs run 18:00–21:00 GMT. Use Test mode outside those hours." : "Morning trips run from 06:00 to 08:00 GMT. Use a test trip outside those hours.");
 			const bus = await db.prepare("SELECT * FROM buses WHERE id = ?").bind(v.busId).first();
 			if (!bus) throw new AppError("Bus not found.");
-			await getRoute(db, bus.route_id);
-			await db.prepare("UPDATE trips SET status = ? WHERE status = ? AND (date < ? OR (test = 0 AND ? = 0) OR (test = 1 AND started_at < ?))").bind("ended", "active", today, Number(inPickupWindow()), Date.now() - 72e5).run();
+			const rid = v.service === "evening" ? bus.night_route_id : bus.route_id;
+			if (!rid) throw new AppError("Ask the administrator to assign an evening route to the bus.");
+			if ((await getRoute(db, rid)).service !== v.service) throw new AppError("The assigned route does not match this transport service.");
+			if (v.service === "evening") {
+				if ((await db.prepare("SELECT value FROM settings WHERE id=?").bind("night-driver").first())?.value !== u.email.toLowerCase()) throw new AppError("Only the designated night driver can start evening trips.", 403);
+			}
+			await expireTrips(db);
 			const tid = crypto.randomUUID();
 			try {
-				await db.prepare("INSERT INTO trips (id,bus_id,route_id,driver_id,driver_name,date,status,test,next_stop,started_at) VALUES (?,?,?,?,?,?,?,?,0,?)").bind(tid, bus.id, bus.route_id, u.userId, m.name, today, "active", Number(v.test), Date.now()).run();
+				await db.prepare("INSERT INTO trips (id,bus_id,route_id,driver_id,driver_name,date,status,test,next_stop,started_at,service) VALUES (?,?,?,?,?,?,?,?,0,?,?)").bind(tid, bus.id, rid, u.userId, m.name, today, "active", Number(v.test), Date.now(), v.service).run();
 			} catch {
-				throw new AppError("This bus already has an active trip. Ask the current driver to hand it over to you.", 409);
+				throw new AppError("This bus already has an active trip. Ask the current driver to hand it over or end it.", 409);
 			}
 			return json({
 				ok: true,
@@ -4561,7 +4788,8 @@ async function POST(req) {
 			"location",
 			"end",
 			"next-stop",
-			"delay"
+			"delay",
+			"dropoff-complete"
 		].includes(action)) {
 			if (action !== "end" && !["admin", "driver"].includes(m.role)) throw new AppError("A driver account is required.", 403);
 			const tid = id.parse(b.tripId);
@@ -4570,6 +4798,7 @@ async function POST(req) {
 				if (!row) throw new AppError("This trip is no longer active.", 409);
 				const t = castTrip(row);
 				await activeWindow(t, db);
+				if (t.service === "evening") throw new AppError("Evening trips use one designated driver; swaps are only for morning duty.", 403);
 				if (!t.handoverEmail || t.handoverEmail !== u.email.toLowerCase()) throw new AppError("This handover is assigned to another driver.", 403);
 				checkEpoch(t, b);
 				const v = freshLocation(b), now = Date.now(), r = await getRoute(db, t.routeId), routeProgress = progressAt(t, r, v);
@@ -4603,6 +4832,7 @@ async function POST(req) {
 			else {
 				await activeWindow(t, db);
 				if (action === "offer-handover") {
+					if (t.service === "evening") throw new AppError("Evening trips use one designated driver. End the trip to finish duty.", 403);
 					if (t.handoverEmail) throw new AppError("Cancel the pending handover before choosing another driver.", 409);
 					const email = stringType().email().max(254).transform((s) => s.toLowerCase()).parse(b.email);
 					if (email === u.email.toLowerCase()) throw new AppError("Choose the driver taking over from you.");
@@ -4631,7 +4861,7 @@ async function POST(req) {
 						ok: true,
 						throttled: true
 					});
-					changed(await db.prepare("UPDATE trips SET lat=?,lng=?,accuracy=?,speed=?,updated_at=?,route_progress=? WHERE " + guard).bind(v.lat, v.lng, v.accuracy, v.speed, now, routeProgress, t.id, u.userId, "active", t.driverEpoch).run());
+					changed((await db.batch([db.prepare("UPDATE trips SET lat=?,lng=?,accuracy=?,speed=?,updated_at=?,route_progress=? WHERE " + guard).bind(v.lat, v.lng, v.accuracy, v.speed, now, routeProgress, t.id, u.userId, "active", t.driverEpoch), db.prepare("INSERT INTO trip_points (id,trip_id,driver_id,driver_epoch,lat,lng,accuracy,captured_at) SELECT ?,?,?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM trips WHERE id=? AND driver_id=? AND status=? AND driver_epoch=? AND handover_email IS NULL)").bind(crypto.randomUUID(), t.id, u.userId, t.driverEpoch, v.lat, v.lng, v.accuracy, v.capturedAt, t.id, u.userId, "active", t.driverEpoch)]))[0]);
 					const bus = await db.prepare("SELECT name FROM buses WHERE id = ?").bind(t.busId).first();
 					await createAlerts(db, {
 						...t,
@@ -4640,7 +4870,15 @@ async function POST(req) {
 						routeProgress
 					}, r, bus?.name ?? "Your bus");
 				}
+				if (action === "dropoff-complete") {
+					if (t.service !== "evening") throw new AppError("Home drop-off confirmation is only for evening trips.");
+					const worker = id.parse(b.userId);
+					if (!await db.prepare("SELECT id FROM night_bookings WHERE user_id=? AND bus_id=? AND route_id=? AND date=? AND on_shift=1").bind(worker, t.busId, t.routeId, t.date).first()) throw new AppError("This worker is not booked for this evening trip.");
+					if (await db.prepare("SELECT delivered_at FROM night_deliveries WHERE trip_id=? AND user_id=?").bind(t.id, worker).first()) return json({ ok: true });
+					changed(await db.prepare("INSERT OR IGNORE INTO night_deliveries (trip_id,user_id,delivered_at) SELECT ?,?,? WHERE EXISTS (SELECT 1 FROM trips WHERE id=? AND driver_id=? AND status=? AND driver_epoch=? AND handover_email IS NULL)").bind(t.id, worker, Date.now(), t.id, u.userId, "active", t.driverEpoch).run());
+				}
 				if (action === "next-stop") {
+					if (t.service === "evening") throw new AppError("Confirm each home drop-off in the passenger list, then end the trip.");
 					const next = numberType().int().parse(b.nextStop);
 					if (next !== t.nextStop + 1 || next > r.stops.length) throw new AppError("Complete the current stop first.");
 					changed(await db.prepare("UPDATE trips SET next_stop=?,status=? WHERE " + guard + " AND next_stop=?").bind(next, next === r.stops.length ? "ended" : "active", t.id, u.userId, "active", t.driverEpoch, t.nextStop).run());
@@ -4650,7 +4888,7 @@ async function POST(req) {
 					const minutes = numberType().int().min(0).max(120).parse(b.minutes);
 					changed(await db.prepare("UPDATE trips SET delay_minutes=? WHERE " + guard).bind(minutes, t.id, u.userId, "active", t.driverEpoch).run());
 					if (minutes > 0 && !t.test) {
-						const ss = await db.prepare("SELECT user_id FROM shifts WHERE bus_id = ? AND route_id = ? AND date = ? AND on_shift = 1").bind(t.busId, t.routeId, today).all();
+						const ss = t.service === "evening" ? await db.prepare("SELECT user_id FROM night_bookings WHERE bus_id=? AND route_id=? AND date=? AND on_shift=1").bind(t.busId, t.routeId, today).all() : await db.prepare("SELECT user_id FROM shifts WHERE bus_id = ? AND route_id = ? AND date = ? AND on_shift = 1").bind(t.busId, t.routeId, today).all();
 						if (ss.results.length) await db.batch(ss.results.map((s) => db.prepare("INSERT OR IGNORE INTO alerts (id,user_id,trip_id,kind,title,body,created_at,push_state,attempts) VALUES (?,?,?,?,?,?,?,?,0)").bind(crypto.randomUUID(), s.user_id, t.id, `delay-${minutes}`, "Your bus is delayed", `The driver reported a ${minutes}-minute delay. Check the map before heading out.`, Date.now(), "pending")));
 						waitUntil(deliver(db, t.id));
 					}

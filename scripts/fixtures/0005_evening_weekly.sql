@@ -1,0 +1,13 @@
+ALTER TABLE routes ADD service text NOT NULL DEFAULT 'morning' CHECK (service IN ('morning','evening'));
+ALTER TABLE buses ADD night_route_id text;
+ALTER TABLE trips ADD service text NOT NULL DEFAULT 'morning' CHECK (service IN ('morning','evening'));
+ALTER TABLE route_recordings ADD service text NOT NULL DEFAULT 'morning' CHECK (service IN ('morning','evening'));
+CREATE TABLE homes (user_id text PRIMARY KEY, name text NOT NULL, lat real NOT NULL, lng real NOT NULL, radius integer NOT NULL, email_arrival integer NOT NULL, updated_at integer NOT NULL);
+CREATE TABLE weekly_shifts (id text PRIMARY KEY, user_id text NOT NULL, date text NOT NULL, name text NOT NULL, email text NOT NULL, shift_label text NOT NULL, on_shift integer NOT NULL, morning integer NOT NULL, evening integer NOT NULL, submitted_at integer NOT NULL);
+CREATE UNIQUE INDEX idx_weekly_user_date ON weekly_shifts(user_id,date);
+CREATE TABLE night_bookings (id text PRIMARY KEY, user_id text NOT NULL, date text NOT NULL, bus_id text NOT NULL, route_id text NOT NULL, on_shift integer NOT NULL, name text NOT NULL, lat real NOT NULL, lng real NOT NULL, radius integer NOT NULL, email_arrival integer NOT NULL);
+CREATE UNIQUE INDEX idx_night_user_date ON night_bookings(user_id,date);
+CREATE INDEX idx_night_bus_date ON night_bookings(bus_id,date);
+CREATE TABLE trip_points (id text PRIMARY KEY, trip_id text NOT NULL, driver_id text NOT NULL, driver_epoch integer NOT NULL, lat real NOT NULL, lng real NOT NULL, accuracy real NOT NULL, captured_at integer NOT NULL);
+CREATE INDEX idx_trip_points ON trip_points(trip_id,captured_at);
+CREATE TABLE night_deliveries (trip_id text NOT NULL,user_id text NOT NULL,delivered_at integer NOT NULL,PRIMARY KEY(trip_id,user_id));
