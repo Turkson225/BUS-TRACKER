@@ -43,6 +43,7 @@ export async function resetPostgres() {
   psql(migration);
   psql(await readFile(new URL('../supabase/migrations/20261004120000_worker_sections.sql',import.meta.url),'utf8'));
   psql(await readFile(new URL('../supabase/migrations/20261004173000_evening_weekly.sql',import.meta.url),'utf8'));
+  psql(await readFile(new URL('../supabase/migrations/20261004182000_office_support.sql',import.meta.url),'utf8'));
 }
 export async function testRuntime({bindings={},outboundService,clock=false}={}) {
   const OriginalDate=Date,originalFetch=globalThis.fetch;

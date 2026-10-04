@@ -47,6 +47,7 @@ const migrations = [
   { version: '20261003200000', name: 'transport' },
   { version: '20261004120000', name: 'worker_sections' },
   { version: '20261004173000', name: 'evening_weekly' },
+  { version: '20261004182000', name: 'office_support' },
 ];
 const ledger = `CREATE SCHEMA IF NOT EXISTS supabase_migrations;
 CREATE TABLE IF NOT EXISTS supabase_migrations.schema_migrations (version text NOT NULL PRIMARY KEY);
@@ -55,15 +56,16 @@ ALTER TABLE supabase_migrations.schema_migrations ADD COLUMN IF NOT EXISTS state
 `;
 const record = migration => `INSERT INTO supabase_migrations.schema_migrations (version, name) VALUES ('${migration.version}', '${migration.name}');\n`;
 let sql = '-- Generated dashboard installation. Run once on a new tracker database.\n-- For an existing database, use upgrade-worker-sections.sql instead.\nBEGIN;\n' + ledger;
-let upgrade,eveningUpgrade;
+let upgrade,eveningUpgrade,officeUpgrade;
 for (const migration of migrations) {
   const source = await readFile(path.join(root, `supabase/migrations/${migration.version}_${migration.name}.sql`), 'utf8');
   sql += source + record(migration);
+  if(migration.name==='office_support') officeUpgrade='-- Add Office & Support Staff to an installed tracker. Run once.\nBEGIN;\n'+ledger+source+record(migration)+'COMMIT;\n';
   if(migration.name==='evening_weekly') eveningUpgrade='-- Evening services and weekly shifts. Run once on a tracker with worker sections installed.\nBEGIN;\n'+ledger+source+record(migration)+'COMMIT;\n';
   if (migration.name === 'worker_sections') upgrade = '-- Generated update for an already installed tracker. Run once.\n-- Existing company data is preserved. Deploy the matching transport.ts afterward.\nBEGIN;\n' + ledger + source + record(migration) + 'COMMIT;\n';
 }
 sql += 'COMMIT;\n';
-const files = { 'transport.ts': output[0].code, 'setup.sql': sql, 'upgrade-worker-sections.sql': upgrade, 'upgrade-evening-weekly.sql': eveningUpgrade };
+const files = { 'transport.ts': output[0].code, 'setup.sql': sql, 'upgrade-worker-sections.sql': upgrade, 'upgrade-evening-weekly.sql': eveningUpgrade, 'upgrade-office-support.sql': officeUpgrade };
 await mkdir(path.join(root, 'deployment/manual'), { recursive: true });
 for (const [name, content] of Object.entries(files)) {
   const file = path.join(root, 'deployment/manual', name);

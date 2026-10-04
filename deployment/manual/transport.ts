@@ -4662,7 +4662,8 @@ async function POST(req) {
 				section: enumType([
 					"Flightops",
 					"Fulops",
-					"CCA"
+					"CCA",
+					"Office & Support Staff"
 				]).nullable().optional()
 			}).parse(b.member);
 			if (v.role === "driver" && v.section) throw new AppError("Work sections apply to worker accounts.");
@@ -4690,7 +4691,8 @@ async function POST(req) {
 			const section = enumType([
 				"Flightops",
 				"Fulops",
-				"CCA"
+				"CCA",
+				"Office & Support Staff"
 			]).parse(b.section);
 			await db.prepare("UPDATE members SET section=? WHERE email=? AND user_id=? AND role=?").bind(section, u.email.toLowerCase(), u.userId, "worker").run();
 			return json({

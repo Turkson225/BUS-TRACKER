@@ -6,7 +6,7 @@ const sql = await readFile(new URL('../deployment/manual/setup.sql', import.meta
 if (process.env.DATABASE_URL) {
   const baseline = await readFile(new URL('../supabase/migrations/20261003200000_transport.sql', import.meta.url), 'utf8');
   const upgrade = await readFile(new URL('../deployment/manual/upgrade-worker-sections.sql', import.meta.url), 'utf8');
-  psql("DROP FUNCTION IF EXISTS public.transport_execute(jsonb); DROP SCHEMA IF EXISTS transport_private CASCADE; CREATE SCHEMA IF NOT EXISTS supabase_migrations; CREATE TABLE IF NOT EXISTS supabase_migrations.schema_migrations (version text PRIMARY KEY); DELETE FROM supabase_migrations.schema_migrations WHERE version IN ('20261003200000','20261004120000','20261004173000');");
+  psql("DROP FUNCTION IF EXISTS public.transport_execute(jsonb); DROP SCHEMA IF EXISTS transport_private CASCADE; CREATE SCHEMA IF NOT EXISTS supabase_migrations; CREATE TABLE IF NOT EXISTS supabase_migrations.schema_migrations (version text PRIMARY KEY); DELETE FROM supabase_migrations.schema_migrations WHERE version IN ('20261003200000','20261004120000','20261004173000','20261004182000');");
   psql(baseline);
   psql("INSERT INTO transport_private.settings (id,value) VALUES ('company','Existing company'); INSERT INTO transport_private.members (email,name,role) VALUES ('worker@example.test','Existing worker','worker');");
   assert.throws(() => psql(upgrade.replace('COMMIT;', 'SELECT 1/0; COMMIT;')), 'failed upgrade must roll back');
@@ -22,12 +22,19 @@ if (process.env.DATABASE_URL) {
   psql(eveningUpgrade);
   assert.equal(psql("SELECT value FROM transport_private.settings WHERE id='company';"),'Existing company');
   assert.throws(()=>psql(eveningUpgrade),'evening upgrade cannot be applied twice');
+  const officeUpgrade=await readFile(new URL('../deployment/manual/upgrade-office-support.sql',import.meta.url),'utf8');
+  assert.throws(()=>psql(officeUpgrade.replace('COMMIT;', 'SELECT 1/0; COMMIT;')),'failed office upgrade rolls back');
+  assert.throws(()=>psql("UPDATE transport_private.members SET section='Office & Support Staff' WHERE email='worker@example.test';"));
+  psql(officeUpgrade);
+  psql("UPDATE transport_private.members SET section='Office & Support Staff' WHERE email='worker@example.test';");
+  assert.equal(psql("SELECT section FROM transport_private.members WHERE email='worker@example.test';"),'Office & Support Staff');
+  assert.throws(()=>psql(officeUpgrade),'office upgrade is recorded once');
   // The previous backend's operation registry still works after the upgrade.
   const { queryId } = await import('../supabase/functions/transport/core/postgres.ts');
   const operation = { id: await queryId('SELECT email,name,role FROM members ORDER BY role,name'), args: [] };
   assert.equal(JSON.parse(psql('SET ROLE service_role; SELECT public.transport_execute(' + sqlQuote(JSON.stringify([operation])) + '::jsonb);'))[0].results[0].name, 'Existing worker');
   // DATABASE_URL is the same isolated, disposable PostgreSQL fixture used by the other tests.
-  psql("DROP FUNCTION IF EXISTS public.transport_execute(jsonb); DROP SCHEMA IF EXISTS transport_private CASCADE; DELETE FROM supabase_migrations.schema_migrations WHERE version IN ('20261003200000','20261004120000','20261004173000');");
+  psql("DROP FUNCTION IF EXISTS public.transport_execute(jsonb); DROP SCHEMA IF EXISTS transport_private CASCADE; DELETE FROM supabase_migrations.schema_migrations WHERE version IN ('20261003200000','20261004120000','20261004173000','20261004182000');");
   assert.throws(() => psql(sql.replace('COMMIT;', 'SELECT 1/0; COMMIT;')), 'a failed installation must abort');
   assert.equal(psql("SELECT count(*) FROM pg_namespace WHERE nspname='transport_private';"), '0', 'failed installation leaves no transport schema');
   assert.equal(psql("SELECT count(*) FROM supabase_migrations.schema_migrations WHERE version='20261003200000';"), '0', 'failed installation is not recorded');

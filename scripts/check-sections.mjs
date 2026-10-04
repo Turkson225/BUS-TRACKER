@@ -14,13 +14,15 @@ try {
     return data;
   }
   await call('admin', { action: 'setup', company: 'Section fixture' });
-  for (const [user, section] of [['flight', 'Flightops'], ['ful', 'Fulops'], ['cca', 'CCA']]) {
+  for (const [user, section] of [['flight', 'Flightops'], ['ful', 'Fulops'], ['cca', 'CCA'], ['office', 'Office & Support Staff']]) {
     await call('admin', { action: 'member', member: { email: `${user}@example.test`, name: user, role: 'worker', section } });
     assert.equal((await call(user)).user.section, section);
   }
   await call('admin', { action: 'member', member: { email: 'driver@example.test', name: 'Driver', role: 'driver' } });
   await call('admin', { action: 'member', member: { email: 'legacy@example.test', name: 'Legacy worker', role: 'worker' } });
   assert.equal((await call('legacy')).user.section, null, 'older workers can choose a section after sign-in');
+  await call('legacy', { action: 'worker-section', section: 'Office & Support Staff' });
+  assert.equal((await call('legacy')).user.section, 'Office & Support Staff', 'office/support can be chosen and saved by a worker');
   await call('legacy', { action: 'worker-section', section: 'CCA' });
   assert.equal((await call('legacy')).user.section, 'CCA', 'section persists across reads');
   await call('flight', { action: 'worker-section', section: 'Fulops', email: 'cca@example.test', userId: 'cca', role: 'driver' });
@@ -44,5 +46,5 @@ try {
   const promoted = (await call('flight')).user;
   assert.equal(promoted.role, 'driver'); assert.equal(promoted.section, null, 'promotion clears worker section');
   await assert.rejects(db.prepare('UPDATE members SET section=? WHERE email=? AND user_id=? AND role=?').bind('CCA', 'driver@example.test', 'driver', 'driver').run(), 'database constraint rejects driver sections');
-  console.log('Worker section checks passed: all three sections, persistence, own-account updates, member approval, role escalation prevention, private directories and safe role changes.');
+  console.log('Worker section checks passed: all four sections, persistence, own-account updates, member approval, role escalation prevention, private directories and safe role changes.');
 } finally { await runtime.dispose(); }

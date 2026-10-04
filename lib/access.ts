@@ -1,4 +1,4 @@
-export const workerSections = ['Flightops', 'Fulops', 'CCA'] as const;
+export const workerSections = ['Flightops', 'Fulops', 'CCA', 'Office & Support Staff'] as const;
 export type WorkerSection = typeof workerSections[number];
 export type SignInIntent = { role: 'worker' | 'driver'; section: WorkerSection | null };
 const key = 'onroute-sign-in-choice';
