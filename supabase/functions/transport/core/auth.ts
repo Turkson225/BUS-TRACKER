@@ -14,18 +14,22 @@ async function keys(issuer: string, refresh = false) {
   try { res = await fetch(`${issuer}/.well-known/jwks.json`, { signal: AbortSignal.timeout(5000), redirect: 'error' }); }
   catch { throw new AppError('Sign-in verification could not reach Clerk. Please retry.', 503); }
   if (!res.ok) throw new AppError('Sign-in verification is temporarily unavailable.', 503);
-  const data = await res.json();
-  if (!Array.isArray(data.keys) || data.keys.length > 20) throw new AppError('Sign-in verification is unavailable.', 503);
+  let data: any;
+  try { data = await res.json(); } catch { throw new AppError('Sign-in verification returned an unreadable response. Please retry.', 503); }
+  if (!data || !Array.isArray(data.keys) || data.keys.length > 20) throw new AppError('Sign-in verification is unavailable.', 503);
   keyCache.set(issuer, { until: Date.now() + 300000, keys: data.keys });
   return data.keys as Key[];
 }
-export async function authenticate(request: Request, env: Environment): Promise<User> {
+export async function authenticate(request: Request, env: Environment, stage: (name: string) => void = () => {}): Promise<User> {
   const token = /^Bearer ([A-Za-z0-9_.-]+)$/.exec(request.headers.get('authorization') ?? '')?.[1];
   if (!token || token.length > 10000) throw new AppError('Sign in to use company transport.', 401);
-  const issuer = env.CLERK_ISSUER?.replace(/\/$/, '');
+  stage('sign-in-settings');
+  const issuer = env.CLERK_ISSUER?.trim().replace(/\/$/, '');
   if (!issuer || !env.CLERK_SECRET_KEY || !env.APP_ORIGIN) throw new AppError('Company sign-in has not been connected.', 503);
-  const address = new URL(issuer);
-  if (address.protocol !== 'https:' || address.origin !== issuer) throw new AppError('Company sign-in settings are invalid.', 503);
+  let address: URL;
+  try { address = new URL(issuer); } catch { throw new AppError('CLERK_ISSUER is invalid. Set it to your Clerk Frontend API URL including https://.', 503); }
+  if (address.protocol !== 'https:' || address.origin !== issuer) throw new AppError('CLERK_ISSUER must be the HTTPS Clerk Frontend API origin, without a path or credentials.', 503);
+  stage('session-verification');
   let claims: any;
   try {
     const parts = token.split('.');
@@ -48,14 +52,17 @@ export async function authenticate(request: Request, env: Environment): Promise<
   const cacheId = issuer + ':' + claims.sub;
   const cached = userCache.get(cacheId);
   if (cached && cached.until > Date.now()) return cached.user;
+  stage('account-profile');
   let response: Response;
   try { response = await fetch(`https://api.clerk.com/v1/users/${claims.sub}`, { headers: { Authorization: `Bearer ${env.CLERK_SECRET_KEY}` }, signal: AbortSignal.timeout(5000), redirect: 'error' }); }
   catch { throw new AppError('Your account could not reach the sign-in service. Please retry.', 503); }
   if (response.status === 401 || response.status === 403) throw new AppError('Company sign-in settings need attention. Ask your administrator to check the Clerk secret key.', 503);
   if (!response.ok) throw new AppError('Your account could not be checked. Please retry.', 503);
-  const profile = await response.json();
-  const primary = profile.email_addresses?.find((email: any) => email.id === profile.primary_email_address_id && email.verification?.status === 'verified');
-  if (profile.id !== claims.sub || profile.banned || profile.locked || !primary || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(primary.email_address)) throw new AppError('A verified company email is required.', 403);
+  let profile: any;
+  try { profile = await response.json(); } catch { throw new AppError('Sign-in service returned an unreadable account response. Please retry.', 503); }
+  if (!profile || !Array.isArray(profile.email_addresses)) throw new AppError('Sign-in service returned an invalid account response. Please retry.', 503);
+  const primary = profile.email_addresses?.find((email: any) => email?.id === profile.primary_email_address_id && email?.verification?.status === 'verified');
+  if (profile.id !== claims.sub || profile.banned || profile.locked || !primary || typeof primary.email_address !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(primary.email_address)) throw new AppError('A verified company email is required.', 403);
   const user = { userId: claims.sub, email: primary.email_address.toLowerCase(), displayName: [profile.first_name, profile.last_name].filter(Boolean).join(' ') || primary.email_address };
   if (userCache.size > 500) userCache.clear();
   userCache.set(cacheId, { until: Date.now() + 30000, user });

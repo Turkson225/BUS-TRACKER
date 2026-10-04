@@ -74,7 +74,9 @@ try {
   await import('../deployment/manual/transport.ts');
   assert.equal(typeof handler, 'function');
   const call = (headers = {}, options = {}) => handler(new Request(`${env.SUPABASE_URL}/functions/v1/transport`, { headers: { origin, ...headers }, ...options }));
-  assert.equal((await call()).status, 401);
+  const anonymous = await call();
+  assert.equal(anonymous.status, 401);
+  assert.equal(anonymous.headers.get('x-onroute-backend'), '20261004-auth-diagnostics');
   assert.equal((await call({ 'oai-authenticated-user-id': 'user_ManualAdmin', 'oai-authenticated-user-email': env.ADMIN_EMAIL })).status, 401);
   assert.equal((await call({ origin: 'https://another-site.test' })).status, 403);
   assert.equal((await call({ authorization: 'Bearer ' + await token({ exp: 0 }) })).status, 401);

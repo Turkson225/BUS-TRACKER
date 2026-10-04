@@ -4715,21 +4715,33 @@ async function keys(issuer, refresh = false) {
 		throw new AppError("Sign-in verification could not reach Clerk. Please retry.", 503);
 	}
 	if (!res.ok) throw new AppError("Sign-in verification is temporarily unavailable.", 503);
-	const data = await res.json();
-	if (!Array.isArray(data.keys) || data.keys.length > 20) throw new AppError("Sign-in verification is unavailable.", 503);
+	let data;
+	try {
+		data = await res.json();
+	} catch {
+		throw new AppError("Sign-in verification returned an unreadable response. Please retry.", 503);
+	}
+	if (!data || !Array.isArray(data.keys) || data.keys.length > 20) throw new AppError("Sign-in verification is unavailable.", 503);
 	keyCache.set(issuer, {
 		until: Date.now() + 3e5,
 		keys: data.keys
 	});
 	return data.keys;
 }
-async function authenticate(request, env) {
+async function authenticate(request, env, stage = () => {}) {
 	const token = /^Bearer ([A-Za-z0-9_.-]+)$/.exec(request.headers.get("authorization") ?? "")?.[1];
 	if (!token || token.length > 1e4) throw new AppError("Sign in to use company transport.", 401);
-	const issuer = env.CLERK_ISSUER?.replace(/\/$/, "");
+	stage("sign-in-settings");
+	const issuer = env.CLERK_ISSUER?.trim().replace(/\/$/, "");
 	if (!issuer || !env.CLERK_SECRET_KEY || !env.APP_ORIGIN) throw new AppError("Company sign-in has not been connected.", 503);
-	const address = new URL(issuer);
-	if (address.protocol !== "https:" || address.origin !== issuer) throw new AppError("Company sign-in settings are invalid.", 503);
+	let address;
+	try {
+		address = new URL(issuer);
+	} catch {
+		throw new AppError("CLERK_ISSUER is invalid. Set it to your Clerk Frontend API URL including https://.", 503);
+	}
+	if (address.protocol !== "https:" || address.origin !== issuer) throw new AppError("CLERK_ISSUER must be the HTTPS Clerk Frontend API origin, without a path or credentials.", 503);
+	stage("session-verification");
 	let claims;
 	try {
 		const parts = token.split(".");
@@ -4754,6 +4766,7 @@ async function authenticate(request, env) {
 	const cacheId = issuer + ":" + claims.sub;
 	const cached = userCache.get(cacheId);
 	if (cached && cached.until > Date.now()) return cached.user;
+	stage("account-profile");
 	let response;
 	try {
 		response = await fetch(`https://api.clerk.com/v1/users/${claims.sub}`, {
@@ -4766,9 +4779,15 @@ async function authenticate(request, env) {
 	}
 	if (response.status === 401 || response.status === 403) throw new AppError("Company sign-in settings need attention. Ask your administrator to check the Clerk secret key.", 503);
 	if (!response.ok) throw new AppError("Your account could not be checked. Please retry.", 503);
-	const profile = await response.json();
-	const primary = profile.email_addresses?.find((email) => email.id === profile.primary_email_address_id && email.verification?.status === "verified");
-	if (profile.id !== claims.sub || profile.banned || profile.locked || !primary || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(primary.email_address)) throw new AppError("A verified company email is required.", 403);
+	let profile;
+	try {
+		profile = await response.json();
+	} catch {
+		throw new AppError("Sign-in service returned an unreadable account response. Please retry.", 503);
+	}
+	if (!profile || !Array.isArray(profile.email_addresses)) throw new AppError("Sign-in service returned an invalid account response. Please retry.", 503);
+	const primary = profile.email_addresses?.find((email) => email?.id === profile.primary_email_address_id && email?.verification?.status === "verified");
+	if (profile.id !== claims.sub || profile.banned || profile.locked || !primary || typeof primary.email_address !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(primary.email_address)) throw new AppError("A verified company email is required.", 403);
 	const user = {
 		userId: claims.sub,
 		email: primary.email_address.toLowerCase(),
@@ -4858,7 +4877,8 @@ function createHandler(env, options = {}) {
 			Vary: "Origin",
 			"Access-Control-Allow-Methods": "GET,POST,OPTIONS",
 			"Access-Control-Allow-Headers": "authorization,content-type,apikey,x-client-info",
-			"Access-Control-Max-Age": "600"
+			"Access-Control-Max-Age": "600",
+			"X-OnRoute-Backend": "20261004-auth-diagnostics"
 		});
 		if (origin && origin === env.APP_ORIGIN) headers.set("Access-Control-Allow-Origin", origin);
 		const respond = (body, status) => Response.json(body, {
@@ -4871,11 +4891,16 @@ function createHandler(env, options = {}) {
 			headers
 		});
 		if (!["GET", "POST"].includes(request.method)) return respond({ error: "Method not allowed." }, 405);
+		let stage = "authentication";
 		try {
+			const user = options.authenticate ? await options.authenticate(request, env) : await authenticate(request, env, (name) => {
+				stage = name;
+			});
+			stage = "company-state";
 			const response = await withContext({
 				db,
 				env,
-				user: await (options.authenticate ?? authenticate)(request, env),
+				user,
 				waitUntil: options.waitUntil ?? ((promise) => {
 					promise.catch((error) => console.error("Alert delivery failed", String(error)));
 				})
@@ -4883,9 +4908,20 @@ function createHandler(env, options = {}) {
 			for (const [key, value] of headers) response.headers.set(key, value);
 			return response;
 		} catch (error) {
-			if (error instanceof AppError) return respond({ error: error.message }, error.status);
-			console.error("Transport handler failed", error instanceof Error ? error.name : "Unknown error");
-			return respond({ error: "Transport service is temporarily unavailable. Please retry." }, 503);
+			if (error instanceof AppError) {
+				if (error.status >= 500) console.error("Transport setup or provider error", JSON.stringify({
+					stage,
+					message: error.message
+				}));
+				return respond({ error: error.message }, error.status);
+			}
+			const reference = crypto.randomUUID();
+			console.error("Transport handler failed", JSON.stringify({
+				reference,
+				stage,
+				errorType: error instanceof Error ? error.name : "Unknown error"
+			}));
+			return respond({ error: `Transport service is temporarily unavailable. Please retry. Reference: ${reference}` }, 503);
 		}
 	};
 }

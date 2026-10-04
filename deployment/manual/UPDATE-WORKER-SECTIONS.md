@@ -28,6 +28,10 @@ Check **Edge Functions → Secrets** privately:
 | ADMIN_EMAIL | Your verified primary administrator email |
 | APP_ORIGIN | https://turkson225.github.io |
 
-The new backend distinguishes a rejected Clerk secret key from an unreachable sign-in service. If the error remains, open **Edge Functions → transport → Logs**, trigger **Retry connection** in the app, and inspect the error at that time. Share only the error message or a screenshot with credentials hidden. Never paste Secret keys, session tokens, passwords or verification codes into chat.
+The new backend distinguishes an invalid CLERK_ISSUER URL, a rejected Clerk secret key, an unreachable sign-in service and malformed provider responses. CLERK_ISSUER must include https:// and must not be a Publishable key or contain quotation marks, a path or credentials. The supplied instance's exact value is shown above.
+
+If the logs only say **Transport handler failed TypeError**, the older function does not record enough detail to identify the cause. Deploy the updated transport.ts before retrying. Its responses include **X-OnRoute-Backend: 20261004-auth-diagnostics**, which identifies the deployed revision without exposing configuration. Expected setup errors now name the setting to check; unexpected failures display a reference that also appears in the private function log with the failing stage.
+
+If the error remains, open **Edge Functions → transport → Logs**, trigger **Retry connection** in the app, and inspect the error at that time. Share only the error message or a screenshot with credentials hidden. Never paste Secret keys, session tokens, passwords or verification codes into chat.
 
 The optional GitHub **Deploy Supabase backend** workflow requires a personal access token. It is not needed for these dashboard steps. **Test and publish website** publishes the frontend automatically.

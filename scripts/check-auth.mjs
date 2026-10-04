@@ -38,6 +38,33 @@ try {
  globalThis.fetch=async()=>{throw new TypeError('Fixture JWKS outage');};
  await assert.rejects(authenticate(new Request(origin,{headers:{authorization:'Bearer '+await token({iss:unreachable})}}),{...env,CLERK_ISSUER:unreachable}),error=>error.status===503&&error.message.includes('could not reach Clerk'));
  const db=new SQLiteDatabase();const handler=createHandler(env,{database:db});
+ const validToken=await token();
+ const oldConsoleError=console.error,diagnosticLogs=[];
+ console.error=(...parts)=>diagnosticLogs.push(parts.join(' '));
+ try {
+  for(const invalidIssuer of ['auth-test.clerk.accounts.dev','pk_test_not_a_url','"https://auth-test.clerk.accounts.dev"','http://auth-test.clerk.accounts.dev',issuer+'/v1',issuer+'?secret=never-log-this',issuer.replace('https://','https://private:password@')]){
+   const invalidHandler=createHandler({...env,CLERK_ISSUER:invalidIssuer},{database:db});
+   const response=await invalidHandler(new Request(origin,{headers:{authorization:'Bearer '+validToken}}));
+   assert.equal(response.status,503);
+   assert.match((await response.json()).error,/CLERK_ISSUER/,'malformed issuer gives an actionable configuration error');
+   assert.equal(response.headers.get('x-onroute-backend'),'20261004-auth-diagnostics');
+  }
+  assert.ok(diagnosticLogs.every(log=>log.includes('sign-in-settings')));
+  assert.ok(!diagnosticLogs.join('\n').includes('never-log-this'));
+  assert.ok(!diagnosticLogs.join('\n').includes('private:password'));
+  const unexpected=createHandler(env,{database:db,authenticate:async()=>{throw new TypeError('secret test value must not be logged: '+validToken);}});
+  const failure=await unexpected(new Request(origin));
+  assert.equal(failure.status,503);
+  const reference=(await failure.json()).error.split('Reference: ')[1];
+  assert.match(reference,/^[a-f0-9-]{36}$/);
+  const record=JSON.parse(diagnosticLogs.at(-1).slice('Transport handler failed '.length));
+  assert.equal(record.reference,reference);assert.equal(record.stage,'authentication');assert.equal(record.errorType,'TypeError');
+  assert.ok(!diagnosticLogs.join('\n').includes(validToken),'diagnostics never log the raw error or bearer token');
+ } finally {console.error=oldConsoleError;}
+ for(const [subject,payload] of [['user_BadJson','not JSON'],['user_BadShape',JSON.stringify({email_addresses:{}})]]){
+  globalThis.fetch=async()=>new Response(payload);
+  await assert.rejects(authenticate(new Request(origin,{headers:{authorization:'Bearer '+await token({sub:subject})}}),env),error=>error.status===503&&error.message.includes('account response'));
+ }
  assert.equal((await handler(new Request(origin,{method:'OPTIONS',headers:{origin}}))).headers.get('access-control-allow-origin'),origin);
  assert.equal((await handler(new Request(origin,{method:'OPTIONS',headers:{origin:'https://attacker.test'}}))).status,403);
  assert.equal((await handler(new Request(origin,{method:'DELETE'}))).status,405);
