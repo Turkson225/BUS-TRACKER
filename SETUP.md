@@ -18,6 +18,8 @@ For company rollout, use a Clerk production instance and complete Clerk's produc
 
 The tracker project's URL and reference are already configured above. Use the [dashboard deployment guide](deployment/manual/README.md) to install the database and deploy the backend without a Supabase access token or GitHub database-password secret. This Vite app uses `VITE_SUPABASE_URL`; `NEXT_PUBLIC_SUPABASE_URL` is a Next.js variable and is not read by this app.
 
+If the database is already installed, use the [worker-section update guide](deployment/manual/UPDATE-WORKER-SECTIONS.md). Run its upgrade SQL once and deploy the updated backend; keep existing company records. Sign-in offers Worker and Driver, and workers choose Flightops, Fulops or CCA. The administrator approves account roles and can assign sections in the member list.
+
 The backend has a custom Clerk verifier. `verify_jwt = false` in `supabase/config.toml` disables Supabase's incompatible legacy JWT gateway check; it does **not** make the transport API anonymous. Every transport request is authenticated in the function before accessing the database.
 
 In **Supabase → Edge Functions → Secrets**, add:

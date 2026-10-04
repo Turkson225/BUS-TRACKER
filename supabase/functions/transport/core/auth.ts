@@ -10,7 +10,9 @@ function decode(value: string) {
 async function keys(issuer: string, refresh = false) {
   const cached = keyCache.get(issuer);
   if (!refresh && cached && cached.until > Date.now()) return cached.keys;
-  const res = await fetch(`${issuer}/.well-known/jwks.json`, { signal: AbortSignal.timeout(5000), redirect: 'error' });
+  let res: Response;
+  try { res = await fetch(`${issuer}/.well-known/jwks.json`, { signal: AbortSignal.timeout(5000), redirect: 'error' }); }
+  catch { throw new AppError('Sign-in verification could not reach Clerk. Please retry.', 503); }
   if (!res.ok) throw new AppError('Sign-in verification is temporarily unavailable.', 503);
   const data = await res.json();
   if (!Array.isArray(data.keys) || data.keys.length > 20) throw new AppError('Sign-in verification is unavailable.', 503);
@@ -46,7 +48,10 @@ export async function authenticate(request: Request, env: Environment): Promise<
   const cacheId = issuer + ':' + claims.sub;
   const cached = userCache.get(cacheId);
   if (cached && cached.until > Date.now()) return cached.user;
-  const response = await fetch(`https://api.clerk.com/v1/users/${claims.sub}`, { headers: { Authorization: `Bearer ${env.CLERK_SECRET_KEY}` }, signal: AbortSignal.timeout(5000), redirect: 'error' });
+  let response: Response;
+  try { response = await fetch(`https://api.clerk.com/v1/users/${claims.sub}`, { headers: { Authorization: `Bearer ${env.CLERK_SECRET_KEY}` }, signal: AbortSignal.timeout(5000), redirect: 'error' }); }
+  catch { throw new AppError('Your account could not reach the sign-in service. Please retry.', 503); }
+  if (response.status === 401 || response.status === 403) throw new AppError('Company sign-in settings need attention. Ask your administrator to check the Clerk secret key.', 503);
   if (!response.ok) throw new AppError('Your account could not be checked. Please retry.', 503);
   const profile = await response.json();
   const primary = profile.email_addresses?.find((email: any) => email.id === profile.primary_email_address_id && email.verification?.status === 'verified');

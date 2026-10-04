@@ -19,7 +19,7 @@ SELECT version FROM supabase_migrations.schema_migrations
 WHERE version = '20261003200000';
 ```
 
-Expected results: **10** tables and version **20261003200000**.
+Expected results: **10** tables. The installation records versions **20261003200000** and **20261004120000**; the latter adds worker sections.
 
 ## 2. Add Clerk settings privately
 
@@ -63,6 +63,8 @@ Use the **Test trip** option outside the morning pickup window. Test driver take
 Phone push and arrival email need their provider settings before they can deliver real messages. Follow the repository's `SETUP.md`, `EMAIL_SETUP.md`, and `TESTING.md` for those steps. Development Clerk settings are for testing; complete Clerk's production setup before company rollout.
 
 ## Updating later
+
+For an already installed tracker, follow **UPDATE-WORKER-SECTIONS.md**: run **upgrade-worker-sections.sql** once, then deploy the updated **transport.ts**. This preserves existing company data. Workers choose **Flightops**, **Fulops** or **CCA**; driver access remains subject to administrator approval.
 
 The original source and generated dashboard files are kept in GitHub. For backend code changes, run `pnpm manual:generate`, review the resulting files, and paste the updated `transport.ts` into the existing function editor, then choose **Deploy updates**. Do not rerun the initial `setup.sql` on an installed database. The dashboard itself does not offer source version control or rollback; use the repository's reviewed versions.
 

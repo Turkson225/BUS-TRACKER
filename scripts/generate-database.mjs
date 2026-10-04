@@ -5,6 +5,12 @@ import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const normalize=sql=>sql.trim().replace(/\s+/g,' ');
+// The installed baseline stays unchanged. Upgrades preserve its reviewed operations
+// so a database update also works with the previous backend during rollout.
+const baselineFile=root+'/supabase/migrations/20261003200000_transport.sql';
+const baseline=await readFile(baselineFile,'utf8');
+const baselineQueries=new Map([...baseline.matchAll(/   WHEN '([a-f0-9]{64})' THEN '((?:[^']|'')*)'\n/g)].map(match=>[match[1],match[2].replaceAll("''","'")]));
+if(baselineQueries.size!==66)throw new Error('Unexpected baseline operation registry.');
 const queries=new Map();
 for(const filename of ['api.ts','recordings.ts','email.ts']){
  const source=ts.createSourceFile(filename,await readFile(root+'/supabase/functions/transport/core/'+filename,'utf8'),ts.ScriptTarget.Latest,true);
@@ -15,7 +21,7 @@ for(const filename of ['api.ts','recordings.ts','email.ts']){
 }
 const quote=value=>"'"+value.replaceAll("'","''")+"'";
 let sql='-- Generated from the reviewed backend queries by scripts/generate-database.mjs.\n-- All tables are private. Browser roles have no access; only the verified Edge Function can call this RPC.\nCREATE SCHEMA transport_private;\nREVOKE ALL ON SCHEMA transport_private FROM PUBLIC, anon, authenticated;\nSET search_path = transport_private, pg_catalog;\n';
-for(const name of (await readdir(root+'/scripts/fixtures')).filter(f=>f.endsWith('.sql')).sort()){
+for(const name of (await readdir(root+'/scripts/fixtures')).filter(f=>/^000[0-3]_.*\.sql$/.test(f)).sort()){
  let fixture=await readFile(root+'/scripts/fixtures/'+name,'utf8');
  fixture=fixture.replaceAll('--> statement-breakpoint','\n').replaceAll('`','"').replace(/\binteger\b/g,'bigint').replace(/\breal\b/g,'double precision');
  sql+=fixture+'\n';
@@ -23,7 +29,8 @@ for(const name of (await readdir(root+'/scripts/fixtures')).filter(f=>f.endsWith
 const tables=['settings','members','routes','buses','trips','shifts','pickups','route_recordings','alerts','subscriptions'];
 for(const table of tables)sql+=`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY;\nREVOKE ALL ON ${table} FROM PUBLIC, anon, authenticated;\n`;
 sql+='ALTER TABLE buses ADD CONSTRAINT bus_single_slot CHECK (slot = 1);\nALTER TABLE members ADD CONSTRAINT valid_member_role CHECK (role IN (\'admin\',\'driver\',\'worker\'));\nCREATE UNIQUE INDEX idx_member_user ON members(user_id) WHERE user_id IS NOT NULL;\nRESET search_path;\n';
-sql+=`CREATE OR REPLACE FUNCTION public.transport_execute(operations jsonb) RETURNS jsonb
+const schema=sql;
+function registry(operations){let sql=`CREATE OR REPLACE FUNCTION public.transport_execute(operations jsonb) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = transport_private, pg_catalog
 AS $function$
 DECLARE op jsonb; args jsonb; template text; rendered text; segments text[]; arg jsonb; output jsonb := '[]'::jsonb; rows jsonb; changes bigint; i integer;
@@ -32,7 +39,7 @@ BEGIN
  FOR op IN SELECT value FROM jsonb_array_elements(operations) LOOP
   args := op->'args';
   template := CASE op->>'id'\n`;
-for(const [hash, query] of queries){let pg=query.replace(/^INSERT OR IGNORE INTO /,'INSERT INTO ');if(query.startsWith('INSERT OR IGNORE'))pg+=' ON CONFLICT DO NOTHING';sql+=`   WHEN '${hash}' THEN ${quote(pg)}\n`;}
+for(const [hash, query] of operations)sql+=`   WHEN '${hash}' THEN ${quote(query)}\n`;
 sql+=`   ELSE NULL END;
   IF template IS NULL OR jsonb_typeof(args) <> 'array' THEN RAISE EXCEPTION 'Unknown operation'; END IF;
   segments := string_to_array(template, '?');
@@ -59,6 +66,12 @@ $function$;
 REVOKE ALL ON FUNCTION public.transport_execute(jsonb) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.transport_execute(jsonb) TO service_role;
 `;
-const file=root+'/supabase/migrations/20261003200000_transport.sql';
-if(process.argv.includes('--check')){if(await readFile(file,'utf8')!==sql)throw new Error('Migration query registry is out of date; run node scripts/generate-database.mjs.');}else await writeFile(file,sql);
-console.log('Verified',queries.size,'fixed server operations and private PostgreSQL schema.');
+return sql;}
+if(schema+registry(baselineQueries)!==baseline)throw new Error('The installed baseline schema must stay unchanged; add a new migration.');
+const operations=new Map(baselineQueries);
+for(const [hash,query] of queries){let pg=query.replace(/^INSERT OR IGNORE INTO /,'INSERT INTO ');if(query.startsWith('INSERT OR IGNORE'))pg+=' ON CONFLICT DO NOTHING';operations.set(hash,pg);}
+const fixture=(await readFile(root+'/scripts/fixtures/0004_worker_sections.sql','utf8')).replaceAll('`','"');
+const upgrade='-- Generated worker-section upgrade. Preserves existing members, routes and trips.\nSET search_path = transport_private, pg_catalog;\n'+fixture+'RESET search_path;\n'+registry(operations);
+const file=root+'/supabase/migrations/20261004120000_worker_sections.sql';
+if(process.argv.includes('--check')){if(await readFile(file,'utf8')!==upgrade)throw new Error('Migration query registry is out of date; run node scripts/generate-database.mjs.');}else await writeFile(file,upgrade);
+console.log('Verified',queries.size,'current fixed server operations, immutable baseline and worker-section upgrade.');

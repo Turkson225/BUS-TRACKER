@@ -22,6 +22,38 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Account choices share the app's frosted surfaces. */
+.auth-card { width: min(100%, 510px); max-width: 510px; }
+.auth-card .auth-help { font-size: 13px; line-height: 1.5; margin: 14px 0; }
+.role-choice, .section-choice { border: 0; padding: 0; margin: 24px 0; min-width: 0; }
+.role-choice legend, .section-choice legend { font-size: 14px; font-weight: 600; color: #334155; margin-bottom: 11px; }
+.role-options { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.role-options label, .section-options label { position: relative; cursor: pointer; }
+.role-options input, .section-options input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.role-options label > span { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 18px; border-radius: 15px; border: 1px solid #c4b5fd; background: rgba(255,255,255,.55); color: #475569; }
+.role-options strong { font-size: 17px; }
+.role-options label small { margin: 0; font-size: 12px; color: #475569; }
+.role-options input:checked + span, .section-options input:checked + span { background: rgba(124,58,237,.11); border-color: #7c3aed; color: #5b21b6; box-shadow: inset 0 0 0 1px #7c3aed; }
+.role-options input:focus-visible + span, .section-options input:focus-visible + span { outline: 3px solid #7c3aed; outline-offset: 3px; }
+.section-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.section-options label > span { display: block; text-align: center; padding: 12px 8px; border: 1px solid #c4b5fd; border-radius: 11px; background: rgba(255,255,255,.55); font-size: 14px; font-weight: 600; color: #475569; }
+.auth-card .admin-signin { font-size: 13px; }
+.connection-card h1 { font-size: 31px; letter-spacing: -1px; }
+.worker-profile { margin-bottom: 24px; display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
+.worker-profile p { margin: 8px 0 0; }
+.worker-profile .section-choice { margin: 0; flex: 1; min-width: 260px; }
+.account-notice { margin: 18px 36px; }
+@media (max-width: 680px) {
+  .auth-screen { padding: 20px 16px; }
+  .auth-card { padding: 28px 22px; }
+  .auth-card h1 { font-size: 37px; }
+  .connection-card h1 { font-size: 28px; }
+  .role-options label > span { padding: 14px; }
+  .worker-profile { gap: 18px; }
+  .worker-profile .section-choice { min-width: 0; flex-basis: 100%; }
+  .account-notice { margin: 18px 16px; }
+}
+
 ::selection { background: #ddd6fe; color: #0f172a; }
 button:focus-visible, a:focus-visible { outline-color: var(--violet); }
 .app { max-width: 1600px; margin: auto; }

@@ -4348,7 +4348,7 @@ async function GET() {
 			db.prepare("SELECT * FROM trips WHERE status=? AND date=?").bind("active", today).all(),
 			db.prepare("SELECT * FROM shifts WHERE user_id=? AND date=?").bind(u.userId, today).first(),
 			db.prepare("SELECT * FROM alerts WHERE user_id=? ORDER BY created_at DESC LIMIT 30").bind(u.userId).all(),
-			m?.role === "admin" ? db.prepare("SELECT email,name,role FROM members ORDER BY role,name").all() : m?.role === "driver" ? db.prepare("SELECT email,name,role FROM members WHERE role IN ('driver','admin') ORDER BY name").all() : Promise.resolve({ results: [] }),
+			m?.role === "admin" ? db.prepare("SELECT email,name,role,section FROM members ORDER BY role,section,name").all() : m?.role === "driver" ? db.prepare("SELECT email,name,role,section FROM members WHERE role IN ('driver','admin') ORDER BY name").all() : Promise.resolve({ results: [] }),
 			db.prepare("SELECT * FROM pickups WHERE user_id=?").bind(u.userId).first(),
 			m?.role === "admin" ? db.prepare("SELECT * FROM route_recordings WHERE owner_id=? AND status IN ('recording','review') LIMIT 1").bind(u.userId).first() : Promise.resolve(null)
 		]);
@@ -4361,7 +4361,8 @@ async function GET() {
 				id: u.userId,
 				name: m?.name ?? u.displayName,
 				email: u.email,
-				role: m?.role ?? "setup"
+				role: m?.role ?? "setup",
+				section: m?.section ?? null
 			},
 			routes: rr.results.map(castRoute),
 			buses: bb.results.map((b) => ({
@@ -4451,10 +4452,30 @@ async function POST(req) {
 			const v = objectType({
 				email: stringType().email().max(254).transform((s) => s.toLowerCase()),
 				name: str,
-				role: enumType(["worker", "driver"])
+				role: enumType(["worker", "driver"]),
+				section: enumType([
+					"Flightops",
+					"Fulops",
+					"CCA"
+				]).nullable().optional()
 			}).parse(b.member);
-			if ((await db.prepare("SELECT role FROM members WHERE email = ?").bind(v.email).first())?.role === "admin") throw new AppError("The administrator role cannot be changed here.");
-			await db.prepare("INSERT INTO members (email,name,role) VALUES (?,?,?) ON CONFLICT(email) DO UPDATE SET name=excluded.name,role=excluded.role").bind(v.email, v.name, v.role).run();
+			if (v.role === "driver" && v.section) throw new AppError("Work sections apply to worker accounts.");
+			const existing = await db.prepare("SELECT role,section FROM members WHERE email = ?").bind(v.email).first();
+			if (existing?.role === "admin") throw new AppError("The administrator role cannot be changed here.");
+			const section = v.role === "worker" ? v.section === void 0 ? existing?.section ?? null : v.section : null;
+			await db.prepare("INSERT INTO members (email,name,role,section) VALUES (?,?,?,?) ON CONFLICT(email) DO UPDATE SET name=excluded.name,role=excluded.role,section=excluded.section").bind(v.email, v.name, v.role, section).run();
+		} else if (action === "worker-section") {
+			if (m.role !== "worker") throw new AppError("Work sections apply to worker accounts.", 403);
+			const section = enumType([
+				"Flightops",
+				"Fulops",
+				"CCA"
+			]).parse(b.section);
+			await db.prepare("UPDATE members SET section=? WHERE email=? AND user_id=? AND role=?").bind(section, u.email.toLowerCase(), u.userId, "worker").run();
+			return json({
+				ok: true,
+				section
+			});
 		} else if (action.startsWith("recording-")) {
 			admin(m);
 			return json(await recordingAction(db, u.userId, b));
@@ -4684,10 +4705,15 @@ function decode(value) {
 async function keys(issuer, refresh = false) {
 	const cached = keyCache.get(issuer);
 	if (!refresh && cached && cached.until > Date.now()) return cached.keys;
-	const res = await fetch(`${issuer}/.well-known/jwks.json`, {
-		signal: AbortSignal.timeout(5e3),
-		redirect: "error"
-	});
+	let res;
+	try {
+		res = await fetch(`${issuer}/.well-known/jwks.json`, {
+			signal: AbortSignal.timeout(5e3),
+			redirect: "error"
+		});
+	} catch {
+		throw new AppError("Sign-in verification could not reach Clerk. Please retry.", 503);
+	}
 	if (!res.ok) throw new AppError("Sign-in verification is temporarily unavailable.", 503);
 	const data = await res.json();
 	if (!Array.isArray(data.keys) || data.keys.length > 20) throw new AppError("Sign-in verification is unavailable.", 503);
@@ -4728,11 +4754,17 @@ async function authenticate(request, env) {
 	const cacheId = issuer + ":" + claims.sub;
 	const cached = userCache.get(cacheId);
 	if (cached && cached.until > Date.now()) return cached.user;
-	const response = await fetch(`https://api.clerk.com/v1/users/${claims.sub}`, {
-		headers: { Authorization: `Bearer ${env.CLERK_SECRET_KEY}` },
-		signal: AbortSignal.timeout(5e3),
-		redirect: "error"
-	});
+	let response;
+	try {
+		response = await fetch(`https://api.clerk.com/v1/users/${claims.sub}`, {
+			headers: { Authorization: `Bearer ${env.CLERK_SECRET_KEY}` },
+			signal: AbortSignal.timeout(5e3),
+			redirect: "error"
+		});
+	} catch {
+		throw new AppError("Your account could not reach the sign-in service. Please retry.", 503);
+	}
+	if (response.status === 401 || response.status === 403) throw new AppError("Company sign-in settings need attention. Ask your administrator to check the Clerk secret key.", 503);
 	if (!response.ok) throw new AppError("Your account could not be checked. Please retry.", 503);
 	const profile = await response.json();
 	const primary = profile.email_addresses?.find((email) => email.id === profile.primary_email_address_id && email.verification?.status === "verified");

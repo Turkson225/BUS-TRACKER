@@ -10,6 +10,14 @@ The website workflow runs TypeScript checks, the production Pages build, the sch
 4. Assign that route to the company bus. Add two verified driver emails and at least two worker emails. A signed-in account that has not been approved must be denied company data.
 5. Each worker taps their own point on the route, saves a shift plan, and reloads. Check that their pickup remains private and belongs to the current route revision.
 
+## Worker / driver sign-in and sections
+
+1. On the sign-in page, choose Worker. Flightops, Fulops and CCA must appear; the sign-in button stays disabled until a section is selected. Choose Driver and confirm the worker-section choices are hidden.
+2. Approve worker accounts for each section and a driver account. Sign in with those accounts using Clerk. The stored section must appear in the worker's account and the administrator's member list; the driver must open on the Driver screen.
+3. An existing approved worker without a section must save one before entering the tracker. Reload, sign in on another device, and confirm the saved section persists. Change it under My pickup and confirm the administrator sees the change.
+4. A worker choosing Driver must retain worker permissions and cannot start or accept a GPS trip. An unapproved email cannot read company data. Only the configured verified administrator may initialize the company.
+5. On a disposable baseline database, apply the worker-section upgrade with existing company and worker records. Confirm those records remain, browser roles remain denied, and the old backend's query operations still work during rollout. Automated PostgreSQL tests also verify upgrade rollback and repeat protection.
+
 ## Driver handover test
 
 Use **Test trip** for safe testing outside the morning window; test trips create no worker alerts or emails.

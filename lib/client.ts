@@ -33,7 +33,7 @@ export function loadClerk() {
     return window.Clerk;
   })().catch(error => { loading = undefined; throw error; });
 }
-export function signIn() { void loadClerk().then(clerk => clerk.openSignIn({ signInForceRedirectUrl: location.origin + base, signUpForceRedirectUrl: location.origin + base })); }
+export function signIn() { return loadClerk().then(clerk => clerk.openSignIn({ signInForceRedirectUrl: location.origin + base, signUpForceRedirectUrl: location.origin + base })); }
 export async function request(body?: unknown) {
   const service = import.meta.env.VITE_SUPABASE_URL?.replace(/\/$/, '');
   if (!service || !configured) throw new Error('Connect Clerk and Supabase to use the live tracker.');

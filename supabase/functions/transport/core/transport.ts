@@ -9,8 +9,8 @@ export type Bus={id:string;name:string;plate:string;routeId:string};
 export type Trip={id:string;busId:string;routeId:string;driverId:string;driverName:string;date:string;status:string;test:number;nextStop:number;lat:number|null;lng:number|null;accuracy:number|null;speed:number|null;updatedAt:number|null;startedAt:number;delayMinutes:number;driverEpoch:number;handoverEmail:string|null;handoverName:string|null;routeProgress?:number};
 export type Shift={date:string;busId:string;routeId:string;stopId:string;onShift:number;radius:number;pickup?:PickupPoint|null;emailArrival?:number;routeRevision?:number};
 export type Alert={id:string;title:string;body:string;createdAt:number;kind:string;pushState:string;emailState?:string};
-export type Member={email:string;name:string;role:string};
-export type State={user:{id:string;name:string;email:string;role:string}|null;configured:boolean;company:string;today:string;inWindow:boolean;routes:Route[];buses:Bus[];trips:Trip[];shift:Shift|null;alerts:Alert[];members:Member[];vapidPublicKey:string|null;pickup:PickupProfile|null;recording:RouteRecording|null;emailReady:boolean};
+export type Member={email:string;name:string;role:string;section:string|null};
+export type State={user:{id:string;name:string;email:string;role:string;section:string|null}|null;configured:boolean;company:string;today:string;inWindow:boolean;routes:Route[];buses:Bus[];trips:Trip[];shift:Shift|null;alerts:Alert[];members:Member[];vapidPublicKey:string|null;pickup:PickupProfile|null;recording:RouteRecording|null;emailReady:boolean};
 export const dateInAccra=(date=new Date())=>new Intl.DateTimeFormat('en-CA',{timeZone:'Africa/Accra',year:'numeric',month:'2-digit',day:'2-digit'}).format(date);
 export function inPickupWindow(date=new Date()){const h=Number(new Intl.DateTimeFormat('en-GB',{timeZone:'Africa/Accra',hour:'2-digit',hourCycle:'h23'}).format(date));return h>=6&&h<8;}
 export function distance(a:{lat:number;lng:number},b:{lat:number;lng:number}){const r=Math.PI/180;const v=Math.sin((b.lat-a.lat)*r/2)**2+Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin((b.lng-a.lng)*r/2)**2;return 6371000*2*Math.atan2(Math.sqrt(v),Math.sqrt(1-v));}

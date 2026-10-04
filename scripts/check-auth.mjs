@@ -26,6 +26,17 @@ try {
   profile={...profile,id,...patch};
   await assert.rejects(authenticate(new Request(origin,{headers:{authorization:'Bearer '+await token({sub:id})}}),env),error=>error.status===403);
  }
+ // Provider outages and a mismatched server key give actionable setup errors,
+ // without changing authentication or exposing key material.
+ globalThis.fetch=async()=>{throw new TypeError('Fixture network outage');};
+ await assert.rejects(authenticate(new Request(origin,{headers:{authorization:'Bearer '+await token({sub:'user_Network'})}}),env),error=>error.status===503&&error.message.includes('could not reach'));
+ for(const status of [401,403]){
+  globalThis.fetch=async()=>new Response('',{status});
+  await assert.rejects(authenticate(new Request(origin,{headers:{authorization:'Bearer '+await token({sub:'user_BadKey'+status})}}),env),error=>error.status===503&&error.message.includes('Clerk secret key'));
+ }
+ const unreachable='https://unreachable.clerk.accounts.dev';
+ globalThis.fetch=async()=>{throw new TypeError('Fixture JWKS outage');};
+ await assert.rejects(authenticate(new Request(origin,{headers:{authorization:'Bearer '+await token({iss:unreachable})}}),{...env,CLERK_ISSUER:unreachable}),error=>error.status===503&&error.message.includes('could not reach Clerk'));
  const db=new SQLiteDatabase();const handler=createHandler(env,{database:db});
  assert.equal((await handler(new Request(origin,{method:'OPTIONS',headers:{origin}}))).headers.get('access-control-allow-origin'),origin);
  assert.equal((await handler(new Request(origin,{method:'OPTIONS',headers:{origin:'https://attacker.test'}}))).status,403);

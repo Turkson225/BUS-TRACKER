@@ -43,9 +43,25 @@ try {
   await bundle.close();
 }
 if (output.length !== 1 || output[0].type !== 'chunk') throw new Error('Dashboard deployment must contain exactly one source file.');
-const migration = await readFile(path.join(root, 'supabase/migrations/20261003200000_transport.sql'), 'utf8');
-const sql = `-- Generated dashboard installation. Run once in the tracker project's SQL Editor.\n-- The transaction leaves no partial installation if any statement fails.\nBEGIN;\n${migration}\n-- Record the same migration version used by the optional Supabase CLI workflow.\nCREATE SCHEMA IF NOT EXISTS supabase_migrations;\nCREATE TABLE IF NOT EXISTS supabase_migrations.schema_migrations (version text NOT NULL PRIMARY KEY);\nALTER TABLE supabase_migrations.schema_migrations ADD COLUMN IF NOT EXISTS name text;\nALTER TABLE supabase_migrations.schema_migrations ADD COLUMN IF NOT EXISTS statements text[];\nINSERT INTO supabase_migrations.schema_migrations (version, name) VALUES ('20261003200000', 'transport');\nCOMMIT;\n`;
-const files = { 'transport.ts': output[0].code, 'setup.sql': sql };
+const migrations = [
+  { version: '20261003200000', name: 'transport' },
+  { version: '20261004120000', name: 'worker_sections' },
+];
+const ledger = `CREATE SCHEMA IF NOT EXISTS supabase_migrations;
+CREATE TABLE IF NOT EXISTS supabase_migrations.schema_migrations (version text NOT NULL PRIMARY KEY);
+ALTER TABLE supabase_migrations.schema_migrations ADD COLUMN IF NOT EXISTS name text;
+ALTER TABLE supabase_migrations.schema_migrations ADD COLUMN IF NOT EXISTS statements text[];
+`;
+const record = migration => `INSERT INTO supabase_migrations.schema_migrations (version, name) VALUES ('${migration.version}', '${migration.name}');\n`;
+let sql = '-- Generated dashboard installation. Run once on a new tracker database.\n-- For an existing database, use upgrade-worker-sections.sql instead.\nBEGIN;\n' + ledger;
+let upgrade;
+for (const migration of migrations) {
+  const source = await readFile(path.join(root, `supabase/migrations/${migration.version}_${migration.name}.sql`), 'utf8');
+  sql += source + record(migration);
+  if (migration.name === 'worker_sections') upgrade = '-- Generated update for an already installed tracker. Run once.\n-- Existing company data is preserved. Deploy the matching transport.ts afterward.\nBEGIN;\n' + ledger + source + record(migration) + 'COMMIT;\n';
+}
+sql += 'COMMIT;\n';
+const files = { 'transport.ts': output[0].code, 'setup.sql': sql, 'upgrade-worker-sections.sql': upgrade };
 await mkdir(path.join(root, 'deployment/manual'), { recursive: true });
 for (const [name, content] of Object.entries(files)) {
   const file = path.join(root, 'deployment/manual', name);
@@ -53,4 +69,4 @@ for (const [name, content] of Object.entries(files)) {
     if (await readFile(file, 'utf8') !== content) throw new Error(`${name} is out of date; run pnpm manual:generate.`);
   } else await writeFile(file, content);
 }
-console.log('Dashboard deployment verified: one backend file and an atomic database installation.');
+console.log('Dashboard deployment verified: one backend file, atomic installation and worker-section upgrade.');
